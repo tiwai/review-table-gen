@@ -1,0 +1,14 @@
+# Datasets
+kreviews/
+kreviews2/
+
+# Generated files
+report.html
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS files
+.DS_Store
