@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import argparse
+import html
 import json
 import os
 import sys
@@ -125,6 +126,7 @@ def main():
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Potential Regressions Found in {branch} Tree</title>
     <style>
         body {{ font-family: sans-serif; margin: 20px; background-color: #f4f4f9; }}
@@ -514,12 +516,12 @@ def main():
 </html>
 """
 
-    author_options = "".join([f'<option value="{a}">{a}</option>' for a in sorted(authors)])
+    author_options = "".join([f'<option value="{html.escape(a)}">{html.escape(a)}</option>' for a in sorted(authors)])
     
     datasets_list = [d[0] for d in args.dataset]
     
     full_html = html_template.format(
-        branch=args.branch,
+        branch=html.escape(args.branch),
         author_options=author_options,
         json_data=json.dumps(processed_data),
         datasets_list=json.dumps(datasets_list),
