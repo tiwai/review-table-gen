@@ -610,17 +610,6 @@ def main():
             document.getElementById('reviewModal').style.display = 'block';
         }}
 
-            const preBtn = document.getElementById('preVerifyBtn');
-            if (review.pre_verification) {{
-                preBtn.style.display = 'block';
-                preBtn.onclick = () => openPreVerify(commitId, dsName);
-            }} else {{
-                preBtn.style.display = 'none';
-            }}
-
-            document.getElementById('reviewModal').style.display = 'block';
-        }}
-
 
         function openPreVerify(commitId, dsName) {{
             const item = data.find(i => i.id === commitId);
