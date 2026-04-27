@@ -129,16 +129,86 @@ def main():
     <meta charset="UTF-8">
     <title>Potential Regressions Found in {branch} Tree</title>
     <style>
-        body {{ font-family: sans-serif; margin: 20px; background-color: #f4f4f9; }}
-        h1 {{ color: #333; }}
-        table {{ border-collapse: collapse; width: 100%; background: white; margin-bottom: 20px; }}
-        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-        th {{ background-color: #f2f2f2; }}
-        .dataset-header {{ background-color: #e9ecef; text-align: center; font-weight: bold; }}
-        .issues-cell {{ cursor: pointer; color: #0056b3; text-decoration: underline; }}
+        :root {{
+            --bg-color: #f4f4f9;
+            --text-color: #333;
+            --table-bg: #fff;
+            --table-border: #ddd;
+            --header-bg: #f2f2f2;
+            --dataset-header-bg: #e9ecef;
+            --link-color: #0056b3;
+            --btn-bg: #007bff;
+            --btn-text: #fff;
+            --modal-bg: rgba(0,0,0,0.5);
+            --modal-content-bg: #fff;
+            --pre-bg: #f8f9fa;
+            --pre-border: #ddd;
+            --diff-added-bg: #e6ffed;
+            --diff-added-text: #28a745;
+            --diff-removed-bg: #ffeef0;
+            --diff-removed-text: #d73a49;
+            --diff-header-bg: #f1f8ff;
+            --diff-header-text: #005cc5;
+            --diff-meta-text: #6a737d;
+            --review-subject-bg: #f6f8fa;
+            --review-subject-text: #24292e;
+            --severity-high-bg: #ffcccc;
+            --severity-high-text: #900;
+            --severity-medium-bg: #fff3cd;
+            --severity-medium-text: #856404;
+            --severity-low-bg: #d4edda;
+            --severity-low-text: #155724;
+            --finding-item-bg: #f8f9fa;
+            --code-block-bg: #f8f9fa;
+            --code-block-border: #e1e4e8;
+        }}
+
+        [data-theme="dark"] {{
+            --bg-color: #1a1a1b;
+            --text-color: #d7dadc;
+            --table-bg: #1a1a1b;
+            --table-border: #343536;
+            --header-bg: #272729;
+            --dataset-header-bg: #343536;
+            --link-color: #d7dadc;
+            --btn-bg: #343536;
+            --btn-text: #d7dadc;
+            --modal-bg: rgba(0,0,0,0.8);
+            --modal-content-bg: #1a1a1b;
+            --pre-bg: #272729;
+            --pre-border: #343536;
+            --diff-added-bg: #1c3321;
+            --diff-added-text: #79c0ff;
+            --diff-removed-bg: #351d22;
+            --diff-removed-text: #ffa198;
+            --diff-header-bg: #151d28;
+            --diff-header-text: #79c0ff;
+            --diff-meta-text: #8b949e;
+            --review-subject-bg: #272729;
+            --review-subject-text: #d7dadc;
+            --severity-high-bg: #4c1a1a;
+            --severity-high-text: #ff9999;
+            --severity-medium-bg: #4c3e1a;
+            --severity-medium-text: #ffcc66;
+            --severity-low-bg: #1a4c2a;
+            --severity-low-text: #99ff99;
+            --finding-item-bg: #272729;
+            --code-block-bg: #0d1117;
+            --code-block-border: #30363d;
+            --inline-view-bg: #1a1a1b;
+        }}
+
+        body {{ font-family: sans-serif; margin: 20px; background-color: var(--bg-color); color: var(--text-color); }}
+        h1 {{ color: var(--text-color); }}
+        table {{ border-collapse: collapse; width: 100%; background: var(--table-bg); margin-bottom: 20px; }}
+        th, td {{ border: 1px solid var(--table-border); padding: 8px; text-align: left; }}
+        th {{ background-color: var(--header-bg); }}
+        .dataset-header {{ background-color: var(--dataset-header-bg); text-align: center; font-weight: bold; }}
+        .issues-cell {{ cursor: pointer; color: var(--link-color); text-decoration: underline; }}
+        a {{ color: var(--link-color); }}
         .pagination {{ margin: 20px 0; display: flex; gap: 5px; }}
-        .pagination button {{ padding: 5px 10px; cursor: pointer; border: 1px solid #ccc; background: white; }}
-        .pagination button.active {{ background-color: #007bff; color: white; border-color: #007bff; }}
+        .pagination button {{ padding: 5px 10px; cursor: pointer; border: 1px solid var(--table-border); background: var(--table-bg); color: var(--text-color); }}
+        .pagination button.active {{ background-color: var(--btn-bg); color: var(--btn-text); border-color: var(--btn-bg); }}
         .filter-container {{ margin-bottom: 20px; }}
         .subject-cell {{ 
             max-width: 400px;
@@ -148,26 +218,23 @@ def main():
         }}
         
         /* Modal styles */
-        .modal {{ display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }}
-        .modal-content {{ background-color: #fff; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-height: 80%; overflow-y: auto; position: relative; font-size: 16px; }}
-        .close {{ position: absolute; right: 20px; top: 10px; font-size: 28px; font-weight: bold; cursor: pointer; }}
+        .modal {{ display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: var(--modal-bg); }}
+        .modal-content {{ background-color: var(--modal-content-bg); margin: 5% auto; padding: 20px; border: 1px solid var(--table-border); width: 80%; max-height: 80%; overflow-y: auto; position: relative; font-size: 16px; color: var(--text-color); }}
+        .close {{ position: absolute; right: 20px; top: 10px; font-size: 28px; font-weight: bold; cursor: pointer; color: var(--text-color); }}
         .warning {{ color: red; font-weight: bold; margin-bottom: 10px; }}
-        pre {{ background: #f8f9fa; padding: 10px; border: 1px solid #ddd; white-space: pre-wrap; word-wrap: break-word; font-size: 14px; }}
-        textarea {{ width: 100%; height: 400px; font-family: monospace; padding: 10px; box-sizing: border-box; font-size: 14px; }}
-        .diff-added {{ color: green; }}
-        .diff-removed {{ color: red; }}
-        .diff-header {{ color: blue; font-weight: bold; }}
+        pre {{ background: var(--pre-bg); padding: 10px; border: 1px solid var(--pre-border); white-space: pre-wrap; word-wrap: break-word; font-size: 14px; color: var(--text-color); }}
+        textarea {{ width: 100%; height: 400px; font-family: monospace; padding: 10px; box-sizing: border-box; font-size: 14px; background: var(--table-bg); color: var(--text-color); }}
         .btn-container {{ margin-top: 10px; display: flex; gap: 10px; }}
-        .btn {{ padding: 8px 16px; cursor: pointer; border: none; background: #007bff; color: white; border-radius: 4px; }}
+        .btn {{ padding: 8px 16px; cursor: pointer; border: none; background: var(--btn-bg); color: var(--btn-text); border-radius: 4px; }}
         .btn-secondary {{ background: #6c757d; }}
-        .severity-high {{ background-color: #ffcccc; color: #900; font-weight: bold; }}
-        .severity-medium {{ background-color: #fff3cd; color: #856404; }}
-        .severity-low {{ background-color: #d4edda; color: #155724; }}
+        .severity-high {{ background-color: var(--severity-high-bg); color: var(--severity-high-text); font-weight: bold; }}
+        .severity-medium {{ background-color: var(--severity-medium-bg); color: var(--severity-medium-text); }}
+        .severity-low {{ background-color: var(--severity-low-bg); color: var(--severity-low-text); }}
         .severity-none {{ color: #999; }}
 
-        .finding-item {{ border-left: 4px solid #007bff; padding: 10px; margin-bottom: 10px; background: #f8f9fa; }}
-        .finding-category {{ font-weight: bold; color: #007bff; margin-bottom: 5px; font-size: 18px; }}
-        .finding-label {{ font-weight: bold; width: 100px; display: inline-block; color: #555; }}
+        .finding-item {{ border-left: 4px solid var(--btn-bg); padding: 10px; margin-bottom: 10px; background: var(--finding-item-bg); }}
+        .finding-category {{ font-weight: bold; color: var(--link-color); margin-bottom: 5px; font-size: 18px; }}
+        .finding-label {{ font-weight: bold; width: 100px; display: inline-block; color: var(--text-color); opacity: 0.8; }}
         .finding-high {{ border-left-color: #d9534f; }}
         .finding-medium {{ border-left-color: #f0ad4e; }}
         .finding-low {{ border-left-color: #5cb85c; }}
@@ -183,23 +250,34 @@ def main():
         }}
         .pre-verification-content {{
             font-family: sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
         }}
         .finding-message, .finding-evidence {{
             font-family: monospace;
             font-size: 15px;
             tab-size: 8;
             -moz-tab-size: 8;
-            background: #eee;
+            background: var(--pre-bg);
             padding: 5px;
             margin-top: 5px;
         }}
-        .diff-added {{ color: #28a745; background-color: #e6ffed; min-width: fit-content; }}
-        .diff-removed {{ color: #d73a49; background-color: #ffeef0; }}
-        .diff-header {{ color: #005cc5; font-weight: bold; background-color: #f1f8ff; }}
-        .diff-meta {{ color: #6a737d; }}
-        .review-metadata {{ color: #005cc5; font-weight: bold; }}
-        .review-subject {{ color: #24292e; font-weight: bold; font-size: 1.1em; background-color: #f6f8fa; padding: 5px; border-radius: 3px; display: block; margin: 5px 0; }}
-        .review-link {{ text-decoration: underline; color: #0366d6; }}
+        .diff-added {{ color: var(--diff-added-text); background-color: var(--diff-added-bg); min-width: fit-content; }}
+        .diff-removed {{ color: var(--diff-removed-text); background-color: var(--diff-removed-bg); }}
+        .diff-header {{ color: var(--diff-header-text); font-weight: bold; background-color: var(--diff-header-bg); }}
+        .diff-meta {{ color: var(--diff-meta-text); }}
+        .review-metadata {{ color: var(--diff-header-text); font-weight: bold; }}
+        .review-subject {{ color: var(--review-subject-text); font-weight: bold; font-size: 1.1em; background-color: var(--review-subject-bg); padding: 5px; border-radius: 3px; display: block; margin: 5px 0; }}
+        .review-link {{ text-decoration: underline; color: var(--link-color); }}
+
+        .theme-switcher {{
+            margin-top: 50px;
+            padding: 20px;
+            border-top: 1px solid var(--table-border);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }}
     </style>
 </head>
 <body>
@@ -207,7 +285,7 @@ def main():
     
     <div class="filter-container">
         <label for="authorFilter">Filter by Author:</label>
-        <select id="authorFilter" onchange="applyFilter()">
+        <select id="authorFilter" onchange="applyFilter()" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
             <option value="All Authors">All Authors</option>
             {author_options}
         </select>
@@ -243,7 +321,27 @@ def main():
         </div>
     </div>
 
+    <div class="theme-switcher">
+        <span>Theme:</span>
+        <label>
+            <input type="radio" name="theme" value="light" checked onclick="setTheme('light')"> Light
+        </label>
+        <label>
+            <input type="radio" name="theme" value="dark" onclick="setTheme('dark')"> Dark
+        </label>
+    </div>
+
     <script>
+        function setTheme(theme) {{
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+        }}
+
+        // Initialize theme
+        const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        setTheme(savedTheme);
+        document.querySelector(`input[name="theme"][value="${{savedTheme}}"]`).checked = true;
+
         const data = {json_data};
         const datasets = {datasets_list};
         const rowsPerPage = {rows_per_page};
@@ -353,7 +451,7 @@ def main():
             const codeBlocks = [];
             processedText = processedText.replace(/```(\\w+)?([\\s\\S]*?)```/g, (match, lang, code) => {{
                 const id = `__CODE_BLOCK_${{codeBlocks.length}}__`;
-                codeBlocks.push(`<div style="background: #f8f9fa; border: 1px solid #e1e4e8; border-left: 4px solid #007bff; padding: 12px; border-radius: 4px; margin: 10px 0; overflow-x: auto; font-family: monospace; color: #24292e;">${{escapeHtml(code.trim())}}</div>`);
+                codeBlocks.push(`<div style="background: var(--code-block-bg); border: 1px solid var(--code-block-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin: 10px 0; overflow-x: auto; font-family: monospace; color: var(--text-color);">${{escapeHtml(code.trim())}}</div>`);
                 return id;
             }});
 
@@ -376,7 +474,7 @@ def main():
 
                 // Handle inline code `...`
                 let content = escapeHtml(cleanLine)
-                    .replace(/`([^`]+)`/g, '<code style="background: #fff; border: 1px solid #ccc; padding: 1px 4px; border-radius: 3px; font-family: monospace; color: #d73a49;">$1</code>')
+                    .replace(/`([^`]+)`/g, '<code style="background: var(--table-bg); border: 1px solid var(--table-border); padding: 1px 4px; border-radius: 3px; font-family: monospace; color: var(--diff-removed-text);">$1</code>')
                     .replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>')
                     .replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
                 
@@ -493,13 +591,24 @@ def main():
             document.getElementById('modalTitle').innerText = `${{dsName}} Review - ${{item.id.substring(0, 12)}}`;
             const body = document.getElementById('modalBody');
             body.innerHTML = `
-                <div style="margin-bottom: 10px; font-weight: bold; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+                <div style="margin-bottom: 10px; font-weight: bold; border-bottom: 1px solid var(--table-border); padding-bottom: 10px;">
                     Subject: ${{escapeHtml(item.subject)}}
                 </div>
-                <div id="inlineView" style="margin-bottom: 10px; border: 1px solid #ddd; padding: 10px; background: #fff; max-height: 500px; overflow-y: auto;">
+                <div id="inlineView" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;">
                     ${{formatInline(review.inline || "No inline review content.")}}
                 </div>
             `;
+
+            const preBtn = document.getElementById('preVerifyBtn');
+            if (review.pre_verification) {{
+                preBtn.style.display = 'block';
+                preBtn.onclick = () => openPreVerify(commitId, dsName);
+            }} else {{
+                preBtn.style.display = 'none';
+            }}
+
+            document.getElementById('reviewModal').style.display = 'block';
+        }}
 
             const preBtn = document.getElementById('preVerifyBtn');
             if (review.pre_verification) {{
