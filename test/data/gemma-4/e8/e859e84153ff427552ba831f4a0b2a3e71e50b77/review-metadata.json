@@ -1,0 +1,12 @@
+{
+  "author": "Takashi Iwai <tiwai@suse.de>",
+  "subject": "[PATCH] HID: uclogic: Correct devm device reference for hidinput input_dev name",
+  "issues-found": 2,
+  "issue-severity-score": "high",
+  "issue-severity-explanation": "Critical issues found that could cause crashes or data corruption",
+  "sha": "e859e84153ff427552ba831f4a0b2a3e71e50b77",
+  "review-time-seconds": 110.85,
+  "model": "gemma-4",
+  "suse-commit": "8f729acd8d10b60cfd33f69502ea8a13012f5733",
+  "upstream-commit": "dd613a4e45f8d35f49a63a2064e5308fa5619e29"
+}

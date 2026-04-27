@@ -1,0 +1,12 @@
+{
+  "author": "Pedro Falcato <pfalcato@suse.de>",
+  "subject": "ipv6: add NULL checks for idev in SRv6 paths",
+  "issues-found": 0,
+  "issue-severity-score": "none",
+  "issue-severity-explanation": "No issues found",
+  "sha": "27bff05802f55fb805a5fe10b80d37f4fddb9729",
+  "review-time-seconds": 104.83,
+  "model": "qwen3.6:q4",
+  "suse-commit": "f06a468d284e591ac25f3c06445e9d0de2f5d982",
+  "upstream-commit": "06413793526251870e20402c39930804f14d59c0"
+}

@@ -1,0 +1,24 @@
+{
+  "author": "Nikolay Borisov <nik.borisov@suse.com>",
+  "sha": "cdfc7080e0dea40d17eb5ec77a2943fb21621680",
+  "subject": "Fix xsaves_xsavec_checked kABI breakage",
+  "potential_issues_found": 1,
+  "findings": [
+    {
+      "category": "CHANGE-3",
+      "type": "sleeping-in-atomic",
+      "message": "The function kvm_hv_xsaves_xsavec_maybe_warn acquires a mutex (hv->hv_lock) in the set_efer path. Since set_efer is called during MSR emulation within the VMEXIT handling flow, this occurs in an atomic context. Acquiring a mutex in an atomic context is a violation of kernel constraints and will lead to a 'scheduling while atomic' error or a system crash.",
+      "evidence": "set_efer in arch/x86/kvm/x86.c calls kvm_hv_xsaves_xsavec_maybe_warn(vcpu), which in turn calls mutex_lock(&hv->hv_lock) in arch/x86/kvm/hyperv.c. The call chain from svm_set_efer (arch/x86/kvm/svm.c) or vmx_set_efer (arch/x86/kvm/vmx.c) traces back to the VMEXIT handler, which is a non-sleepable atomic context.",
+      "severity": "high",
+      "upstream_status": "present_in_upstream"
+    }
+  ],
+  "verification_status": "pre_verification",
+  "suse_upstream_verification": {
+    "suse_commit_sha": "4d19df50441334a11598b1c97aea3c334d33174f",
+    "upstream_commit_sha": "d52734d00b8e86604a66b4cdfa9e8bb541daca2d",
+    "findings_in_upstream": 1,
+    "findings_downstream_only": 0,
+    "upstream_subject": "KVM: x86: Give a hint when Win2016 might fail to boot due to XSAVES erratum"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "author": "Nikolay Borisov <nik.borisov@suse.com>",
+  "subject": "Fix xsaves_xsavec_checked kABI breakage",
+  "issues-found": 0,
+  "issue-severity-score": "none",
+  "issue-severity-explanation": "No issues found",
+  "sha": "cdfc7080e0dea40d17eb5ec77a2943fb21621680",
+  "review-time-seconds": 249.69,
+  "model": "qwen3.6:q4",
+  "suse-commit": "4d19df50441334a11598b1c97aea3c334d33174f"
+}

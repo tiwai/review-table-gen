@@ -1,0 +1,24 @@
+{
+  "author": "Nikolay Borisov <nik.borisov@suse.com>",
+  "sha": "cdfc7080e0dea40d17eb5ec77a2943fb21621680",
+  "subject": "Fix xsaves_xsavec_checked kABI breakage",
+  "potential_issues_found": 1,
+  "findings": [
+    {
+      "category": "CHANGE-1",
+      "type": "build-error",
+      "message": "The xsaves_xsavec_checked field is guarded by #ifndef __GENKSYMS__ in struct kvm_hv, but its usages in hyperv.c and x86.c are not. This will cause a compilation error during kABI tracking builds (make kabi-check), which compile the entire kernel with __GENKSYMS__=1 to verify struct layouts. While the patch fixes a kABI breakage by hiding the field from ABI checks, the unguarded references in the C source files introduce a build break in the same mode.",
+      "evidence": "arch/x86/include/asm/kvm_host.h:\n#ifndef __GENKSYMS__\n\tbool xsaves_xsavec_checked;\n#endif\narch/x86/kvm/hyperv.c:\n\tif (hv->xsaves_xsavec_checked)\n\t\treturn;\narch/x86/kvm/x86.c:\n\tkvm_hv_xsaves_xsavec_maybe_warn(vcpu);",
+      "severity": "high",
+      "upstream_status": "present_in_upstream"
+    }
+  ],
+  "verification_status": "pre_verification",
+  "suse_upstream_verification": {
+    "suse_commit_sha": "4d19df50441334a11598b1c97aea3c334d33174f",
+    "upstream_commit_sha": "d52734d00b8e86604a66b4cdfa9e8bb541daca2d",
+    "findings_in_upstream": 1,
+    "findings_downstream_only": 0,
+    "upstream_subject": "KVM: x86: Give a hint when Win2016 might fail to boot due to XSAVES erratum"
+  }
+}

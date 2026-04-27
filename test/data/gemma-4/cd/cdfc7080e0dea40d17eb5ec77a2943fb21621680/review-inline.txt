@@ -1,0 +1,19 @@
+commit cdfc7080e0dea40d17eb5ec77a2943fb21621680
+Author: Nikolay Borisov <nik.borisov@suse.com>
+
+Fix xsaves_xsavec_checked kABI breakage
+
+suse-commit: 4d19df50441334a11598b1c97aea3c334d33174f
+
+Verified-against: d52734d00b8e86604a66b4cdfa9e8bb541daca2d
+Upstream-subject: KVM: x86: Give a hint when Win2016 might fail to boot due to XSAVES erratum
+Findings-in-upstream: 1
+Findings-downstream-only: 0
+
+This commit appears correct with no regressions found. Verified against
+upstream: KVM: x86: Give a hint when Win2016 might fail to boot due to XSAVES
+erratum
+
+Review-time: 243.30 seconds
+
+Review-model: gemma-4

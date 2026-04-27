@@ -1,0 +1,32 @@
+{
+  "author": "Takashi Iwai <tiwai@suse.de>",
+  "sha": "e859e84153ff427552ba831f4a0b2a3e71e50b77",
+  "subject": "[PATCH] HID: uclogic: Correct devm device reference for hidinput input_dev name",
+  "potential_issues_found": 2,
+  "findings": [
+    {
+      "category": "CHANGE-1",
+      "type": "backport-error",
+      "message": "The patch is an incomplete backport and fails to fix the reported use-after-free in hid-uclogic-core.c",
+      "evidence": "The backport analysis indicates that the downstream patch is missing critical hunks present in the upstream patch: drivers/hid/hid-uclogic-core.c:85 and drivers/hid/hid-uclogic-core.c:144. While the patch correctly applies the fix to drivers/hid/hid-uclogic.c, the vulnerability (UAF caused by incorrect devm parent) remains in the core driver file.",
+      "severity": "high",
+      "upstream_status": "present_in_upstream"
+    },
+    {
+      "category": "CHANGE-3",
+      "type": "logic-error",
+      "message": "Failed allocation of the input name now results in a NULL name instead of preserving the existing name",
+      "evidence": "In the parent version, the code checked 'if (name)' before assigning to 'hi->input->name'. In the current version, 'hi->input->name' is directly assigned the result of 'devm_kasprintf'. If allocation fails, 'hi->input->name' becomes NULL, whereas the previous behavior was to leave the existing name intact.",
+      "severity": "low",
+      "upstream_status": "present_in_upstream"
+    }
+  ],
+  "verification_status": "pre_verification",
+  "suse_upstream_verification": {
+    "suse_commit_sha": "8f729acd8d10b60cfd33f69502ea8a13012f5733",
+    "upstream_commit_sha": "dd613a4e45f8d35f49a63a2064e5308fa5619e29",
+    "findings_in_upstream": 2,
+    "findings_downstream_only": 0,
+    "upstream_subject": "HID: uclogic: Correct devm device reference for hidinput input_dev name"
+  }
+}

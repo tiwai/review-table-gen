@@ -1,0 +1,20 @@
+commit e859e84153ff427552ba831f4a0b2a3e71e50b77
+Author: Takashi Iwai <tiwai@suse.de>
+
+[PATCH] HID: uclogic: Correct devm device reference for hidinput input_dev name
+
+suse-commit: 8f729acd8d10b60cfd33f69502ea8a13012f5733
+Git-commit: dd613a4e45f8d35f49a63a2064e5308fa5619e29
+
+Verified-against: dd613a4e45f8d35f49a63a2064e5308fa5619e29
+Upstream-subject: HID: uclogic: Correct devm device reference for hidinput input_dev name
+Findings-in-upstream: 1
+Findings-downstream-only: 0
+
+This commit appears correct with no regressions found. Verified against
+upstream: HID: uclogic: Correct devm device reference for hidinput input_dev
+name
+
+Review-time: 119.52 seconds
+
+Review-model: qwen3.6:q4

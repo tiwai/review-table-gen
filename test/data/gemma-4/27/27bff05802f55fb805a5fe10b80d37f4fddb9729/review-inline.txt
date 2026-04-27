@@ -1,0 +1,13 @@
+commit 27bff05802f55fb805a5fe10b80d37f4fddb9729
+Author: Pedro Falcato <pfalcato@suse.de>
+
+ipv6: add NULL checks for idev in SRv6 paths
+
+suse-commit: f06a468d284e591ac25f3c06445e9d0de2f5d982
+Git-commit: 06413793526251870e20402c39930804f14d59c0
+
+This commit appears correct with no regressions found.
+
+Review-time: 69.50 seconds
+
+Review-model: gemma-4

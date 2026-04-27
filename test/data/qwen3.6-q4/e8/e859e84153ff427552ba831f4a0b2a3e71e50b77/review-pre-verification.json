@@ -1,0 +1,24 @@
+{
+  "author": "Takashi Iwai <tiwai@suse.de>",
+  "sha": "e859e84153ff427552ba831f4a0b2a3e71e50b77",
+  "subject": "[PATCH] HID: uclogic: Correct devm device reference for hidinput input_dev name",
+  "potential_issues_found": 1,
+  "findings": [
+    {
+      "category": "CHANGE-2",
+      "type": "error-handling",
+      "message": "devm_kasprintf return value is not checked for allocation failure. The function returns ERR_PTR(-ENOMEM) on failure, which will be directly assigned to hi->input->name. Since error pointers are non-NULL, any subsequent code that checks if (hi->input->name) will treat it as a valid string, leading to crashes or memory corruption when it is dereferenced or passed to string functions.",
+      "evidence": "hi->input->name = devm_kasprintf(&hdev->dev, GFP_KERNEL, \"%s %s\", hdev->name, suffix);\n\nThe original code safely handled this:\nif (name) {\n    snprintf(name, len, \"%s %s\", hdev->name, suffix);\n    hi->input->name = name;\n}",
+      "severity": "medium",
+      "upstream_status": "present_in_upstream"
+    }
+  ],
+  "verification_status": "pre_verification",
+  "suse_upstream_verification": {
+    "suse_commit_sha": "8f729acd8d10b60cfd33f69502ea8a13012f5733",
+    "upstream_commit_sha": "dd613a4e45f8d35f49a63a2064e5308fa5619e29",
+    "findings_in_upstream": 1,
+    "findings_downstream_only": 0,
+    "upstream_subject": "HID: uclogic: Correct devm device reference for hidinput input_dev name"
+  }
+}

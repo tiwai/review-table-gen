@@ -1,0 +1,3 @@
+27bff05802f55fb805a5fe10b80d37f4fddb9729 ipv6: add NULL checks for idev in SRv6 paths (CVE-2026-23442 bsc#1261581).
+e859e84153ff427552ba831f4a0b2a3e71e50b77 HID: uclogic: Correct devm device reference for hidinput input_dev name (CVE-2023-54207 bsc#1255961).
+cdfc7080e0dea40d17eb5ec77a2943fb21621680 KVM: x86: Give a hint when Win2016 might fail to boot due to XSAVES  erratum (git-fixes).

@@ -1,0 +1,65 @@
+commit e859e84153ff427552ba831f4a0b2a3e71e50b77
+Author: Takashi Iwai <tiwai@suse.de>
+
+[PATCH] HID: uclogic: Correct devm device reference for hidinput input_dev name
+
+suse-commit: 8f729acd8d10b60cfd33f69502ea8a13012f5733
+Git-commit: dd613a4e45f8d35f49a63a2064e5308fa5619e29
+
+Verified-against: dd613a4e45f8d35f49a63a2064e5308fa5619e29
+Upstream-subject: HID: uclogic: Correct devm device reference for hidinput input_dev name
+Findings-in-upstream: 2
+Findings-downstream-only: 0
+
+This commit has 2 potential issues also present in upstream. Consider
+reporting to upstream maintainers.
+
+Review-time: 110.85 seconds
+
+Review-model: gemma-4
+
+> diff --git a/drivers/hid/hid-uclogic.c b/drivers/hid/hid-uclogic.c
+> index e3e6e5c893cc..345d5c3206fd 100644
+> --- a/drivers/hid/hid-uclogic.c
+> +++ b/drivers/hid/hid-uclogic.c
+> @@ -730,10 +730,8 @@ static int uclogic_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+>  static int uclogic_input_configured(struct hid_device *hdev,
+>  		struct hid_input *hi)
+>  {
+> -	char *name;
+>  	const char *suffix = NULL;
+>  	struct hid_field *field;
+> -	size_t len;
+>  
+>  	/* no report associated (HID_QUIRK_MULTI_INPUT not set) */
+>  	if (!hi->report)
+> @@ -762,14 +760,9 @@ static int uclogic_input_configured(struct hid_device *hdev,
+>  		break;
+>  	}
+>  
+> -	if (suffix) {
+> -		len = strlen(hdev->name) + 2 + strlen(suffix);
+> -		name = devm_kzalloc(&hi->input->dev, len, GFP_KERNEL);
+> -		if (name) {
+> -			snprintf(name, len, "%s %s", hdev->name, suffix);
+> -			hi->input->name = name;
+> -		}
+> -	}
+> +	if (suffix)
+> +		hi->input->name = devm_kasprintf(&hdev->dev, GFP_KERNEL,
+> +						 "%s %s", hdev->name, suffix);
+>  
+>  	return 0;
+>  }
+>
+
+The patch is an incomplete backport and fails to fix the reported use-after-
+free in hid-uclogic-core.c
+
+The backport analysis explicitly identifies missing hunks in the upstream patch that are absent in this downstream version: drivers/hid/hid-uclogic-core.c:85 and drivers/hid/hid-uclogic-core.c:144. Since the purpose of the patch is to correct the devm parent to prevent a use-after-free, the absence of these hunks in the core driver file means the vulnerability remains unpatched in those locations.
+
+Failed allocation of the input name now results in a NULL name instead of
+preserving the existing name
+
+In the parent version of uclogic_input_configured, the assignment to 'hi->input->name' is guarded by 'if (name)', ensuring that if the allocation fails, the existing name remains unchanged. In the current version, 'hi->input->name' is directly assigned the result of 'devm_kasprintf'. Consequently, if 'devm_kasprintf' fails and returns NULL, 'hi->input->name' is overwritten with NULL, changing the fallback behavior.
+
