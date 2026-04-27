@@ -329,6 +329,15 @@ def main():
         <label>
             <input type="radio" name="theme" value="dark" onclick="setTheme('dark')"> Dark
         </label>
+
+        <span style="margin-left: 20px;">Rows per page:</span>
+        <select id="rowsPerPageSelect" onchange="setRowsPerPage(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+        </select>
     </div>
 
     <script>
@@ -344,8 +353,17 @@ def main():
 
         const data = {json_data};
         const datasets = {datasets_list};
-        const rowsPerPage = {rows_per_page};
+        let rowsPerPage = {rows_per_page};
         const useKernCVS = {use_kerncvs};
+
+        // Initialize rows per page select
+        document.getElementById('rowsPerPageSelect').value = rowsPerPage;
+
+        function setRowsPerPage(value) {{
+            rowsPerPage = parseInt(value);
+            currentPage = 1;
+            renderTable();
+        }}
         const commitBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=" : "https://github.com/SUSE/kernel/commit/";
         const ksBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=" : "https://github.com/SUSE/kernel-source/commit/";
 
