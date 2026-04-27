@@ -197,6 +197,9 @@ def main():
         .diff-removed {{ color: #d73a49; background-color: #ffeef0; }}
         .diff-header {{ color: #005cc5; font-weight: bold; background-color: #f1f8ff; }}
         .diff-meta {{ color: #6a737d; }}
+        .review-metadata {{ color: #005cc5; font-weight: bold; }}
+        .review-subject {{ color: #24292e; font-weight: bold; font-size: 1.1em; background-color: #f6f8fa; padding: 5px; border-radius: 3px; display: block; margin: 5px 0; }}
+        .review-link {{ text-decoration: underline; color: #0366d6; }}
     </style>
 </head>
 <body>
@@ -355,7 +358,10 @@ def main():
             }});
 
             const lines = processedText.split('\\n');
-            let formattedLines = lines.map(line => {{
+            let authorFound = false;
+            let subjectFound = false;
+
+            let formattedLines = lines.map((line, idx) => {{
                 if (line.startsWith('__CODE_BLOCK_') && line.endsWith('__')) {{
                     const index = parseInt(line.replace('__CODE_BLOCK_', '').replace('__', ''));
                     return codeBlocks[index];
@@ -374,18 +380,64 @@ def main():
                     .replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>')
                     .replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
                 
-                let className = "";
                 if (isInline) {{
+                    const trimmed = cleanLine.trim();
+                    if (trimmed.startsWith('commit ')) {{
+                        const id = trimmed.substring(7).trim();
+                        if (/^[0-9a-f]{{7,}}$/.test(id)) {{
+                             return `<span class="review-metadata">commit <a href="${{commitBaseUrl}}${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
+                        }}
+                    }}
+                    if (trimmed.startsWith('Author: ')) {{
+                        authorFound = true;
+                        return `<span class="review-metadata">${{content}}</span>\\n`;
+                    }}
+                    if (trimmed.startsWith('suse-commit: ')) {{
+                        const id = trimmed.substring(13).trim();
+                        return `<span class="review-metadata">suse-commit: <a href="${{ksBaseUrl}}${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
+                    }}
+                    if (trimmed.startsWith('Git-commit: ')) {{
+                        const id = trimmed.substring(12).trim();
+                        return `<span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
+                    }}
+                    if (trimmed.startsWith('Verified-against: ')) {{
+                        const id = trimmed.substring(18).trim();
+                        return `<span class="review-metadata">Verified-against: <a href="https://github.com/torvalds/linux/commit/${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
+                    }}
+                    
+                    const metaPrefixes = [
+                        'Upstream-subject: ',
+                        'Findings-in-upstream: ',
+                        'Findings-downstream-only: ',
+                        'Review-time: ',
+                        'Review-model: '
+                    ];
+                    if (metaPrefixes.some(p => trimmed.startsWith(p))) {{
+                        return `<span class="review-metadata">${{content}}</span>\\n`;
+                    }}
+
+                    // Subject detection: after Author: and between blank lines
+                    if (authorFound && !subjectFound && trimmed !== "") {{
+                        const prevLine = idx > 0 ? lines[idx-1].trim() : "";
+                        const nextLine = idx < lines.length - 1 ? lines[idx+1].trim() : "";
+                        if (prevLine === "" && (nextLine === "" || nextLine.startsWith('suse-commit:'))) {{
+                            subjectFound = true;
+                            return `<span class="review-subject">${{content}}</span>\\n`;
+                        }}
+                    }}
+
+                    let className = "";
                     if (cleanLine.startsWith('+++') || cleanLine.startsWith('---')) className = "diff-meta";
                     else if (cleanLine.startsWith('+')) className = "diff-added";
                     else if (cleanLine.startsWith('-')) className = "diff-removed";
                     else if (cleanLine.startsWith('@@')) className = "diff-header";
                     else if (cleanLine.startsWith('diff --git') || cleanLine.startsWith('index ')) className = "diff-meta";
+                    
+                    if (className) {{
+                        return `<span class="${{className}}">${{prefixHtml}}${{content}}</span>\\n`;
+                    }}
                 }}
                 
-                if (className) {{
-                    return `<span class="${{className}}">${{prefixHtml}}${{content}}</span>\\n`;
-                }}
                 return `${{prefixHtml}}${{content}}\\n`;
             }});
 
