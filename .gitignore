@@ -3,7 +3,7 @@ kreviews/
 kreviews2/
 
 # Generated files
-report.html
+test-report.html
 
 # Python
 __pycache__/
