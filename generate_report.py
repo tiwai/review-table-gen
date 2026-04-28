@@ -492,7 +492,9 @@ def main():
                         let dsClass = "";
                         if (review.downstream_only) {{
                             issuesText += ` [${{review.downstream_only}}]`;
-                            dsClass = "has-downstream";
+                            if (metadata['issues-found'] > 0) {{
+                                dsClass = "has-downstream";
+                            }}
                         }}
 
                         html += `<td class="issues-cell ${{dsClass}}" ${{clickAction}}>${{issuesText}}</td>`;
