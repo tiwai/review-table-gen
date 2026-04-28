@@ -346,14 +346,16 @@ def main():
             localStorage.setItem('theme', theme);
         }}
 
+        const urlParams = new URLSearchParams(window.location.search);
+
         // Initialize theme
-        const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        let savedTheme = urlParams.get('theme') || localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
         setTheme(savedTheme);
         document.querySelector(`input[name="theme"][value="${{savedTheme}}"]`).checked = true;
 
         const data = {json_data};
         const datasets = {datasets_list};
-        let rowsPerPage = {rows_per_page};
+        let rowsPerPage = parseInt(urlParams.get('rows')) || {rows_per_page};
         const useKernCVS = {use_kerncvs};
 
         // Initialize rows per page select
