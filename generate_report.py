@@ -289,6 +289,9 @@ def main():
             <option value="All Authors">All Authors</option>
             {author_options}
         </select>
+
+        <label for="subjectSearch" style="margin-left: 20px;">Search Subject:</label>
+        <input type="text" id="subjectSearch" oninput="applyFilter()" placeholder="Search..." style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border); padding: 4px;">
     </div>
 
     <div id="paginationContainer" class="pagination"></div>
@@ -375,13 +378,16 @@ def main():
 
         function applyFilter() {{
             const author = document.getElementById('authorFilter').value;
-            if (author === "All Authors") {{
-                filteredData = data;
-            }} else {{
-                filteredData = data.filter(item => {{
-                    return Object.values(item.reviews).some(r => r.metadata && r.metadata.author === author);
-                }});
-            }}
+            const searchText = document.getElementById('subjectSearch').value.toLowerCase();
+
+            filteredData = data.filter(item => {{
+                const matchesAuthor = (author === "All Authors") || 
+                    Object.values(item.reviews).some(r => r.metadata && r.metadata.author === author);
+                
+                const matchesSubject = item.subject.toLowerCase().includes(searchText);
+                
+                return matchesAuthor && matchesSubject;
+            }});
             currentPage = 1;
             renderTable();
         }}
