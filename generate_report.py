@@ -56,7 +56,16 @@ def get_review_data(dataset_dir, full_id):
     inline_path = os.path.join(commit_dir, "review-inline.txt")
     if os.path.exists(inline_path):
         with open(inline_path, "r") as f:
-            data["inline"] = f.read()
+            inline_text = f.read()
+            data["inline"] = inline_text
+            # Parse downstream-only findings
+            for line in inline_text.splitlines():
+                if line.startswith("Findings-downstream-only:"):
+                    try:
+                        data["downstream_only"] = int(line.split(":")[1].strip())
+                    except:
+                        pass
+                    break
             
     pre_verification_path = os.path.join(commit_dir, "review-pre-verification.json")
     if os.path.exists(pre_verification_path):
@@ -161,6 +170,7 @@ def main():
             --finding-item-bg: #f8f9fa;
             --code-block-bg: #f8f9fa;
             --code-block-border: #e1e4e8;
+            --downstream-highlight-bg: #fff5b1;
         }}
 
         [data-theme="dark"] {{
@@ -196,6 +206,7 @@ def main():
             --code-block-bg: #0d1117;
             --code-block-border: #30363d;
             --inline-view-bg: #1a1a1b;
+            --downstream-highlight-bg: #443d00;
         }}
 
         [data-theme="psychedelic"] {{
@@ -231,6 +242,7 @@ def main():
             --code-block-bg: #1a0033;
             --code-block-border: #ff00ff;
             --inline-view-bg: #2d004d;
+            --downstream-highlight-bg: #ff00ff;
         }}
 
         body {{ font-family: sans-serif; margin: 20px; background-color: var(--bg-color); color: var(--text-color); }}
@@ -240,6 +252,7 @@ def main():
         th {{ background-color: var(--header-bg); }}
         .dataset-header {{ background-color: var(--dataset-header-bg); text-align: center; font-weight: bold; }}
         .issues-cell {{ cursor: pointer; color: var(--link-color); text-decoration: underline; }}
+        .has-downstream {{ background-color: var(--downstream-highlight-bg) !important; }}
         a {{ color: var(--link-color); }}
         .pagination {{ margin: 20px 0; display: flex; gap: 5px; }}
         .pagination button {{ padding: 5px 10px; cursor: pointer; border: 1px solid var(--table-border); background: var(--table-bg); color: var(--text-color); }}
@@ -474,7 +487,15 @@ def main():
                         const severity = (metadata['issue-severity-score'] || "none").toLowerCase();
                         const severityClass = `severity-${{severity}}`;
                         const clickAction = `onclick="openReview('${{item.id}}', '${{dsName}}')"`;
-                        html += `<td class="issues-cell" ${{clickAction}}>${{metadata['issues-found']}}${{hasPre}}</td>`;
+                        
+                        let issuesText = `${{metadata['issues-found']}}${{hasPre}}`;
+                        let dsClass = "";
+                        if (review.downstream_only) {{
+                            issuesText += ` [${{review.downstream_only}}]`;
+                            dsClass = "has-downstream";
+                        }}
+
+                        html += `<td class="issues-cell ${{dsClass}}" ${{clickAction}}>${{issuesText}}</td>`;
                         html += `<td class="${{severityClass}} issues-cell" ${{clickAction}}>${{metadata['issue-severity-score']}}</td>`;
                         html += `<td>${{metadata['review-time-seconds']}}s</td>`;
                     }} else {{
