@@ -4,10 +4,13 @@ A Python-based tool to generate a single, standalone static HTML report for Linu
 
 ## Features
 
-- **Interactive Table**: A paginated view (default 50 rows) of commits and their review status.
+- **Interactive Table**: A paginated view of commits and their review status.
+- **Dynamic Configuration**: Adjust the number of displayed rows (20 to 500) directly from the UI.
+- **Color Themes**: Support for both Light and Dark modes, with a dynamic switcher at the bottom. The theme preference is saved in the browser.
 - **Author Filtering**: Quickly filter results by the author of the review.
 - **Rich Visualization**:
-    - **Inline Reviews**: Pretty-formatted diffs with syntax highlighting and Markdown support (code blocks, inline code, bold, italic).
+    - **Inline Reviews**: Pretty-formatted metadata (Author, Commits, Subjects) and diffs with syntax highlighting and Markdown support.
+    - **Automatic Linkification**: Direct links to upstream Linux kernel, downstream kernel, and kernel-source repositories from within the review popup.
     - **Pre-verification Results**: Structured display of findings (Category, Type, Severity, Evidence).
 - **Navigation**: Support for both GitHub and SUSE KernCVS links.
 - **Standalone**: Generates a single HTML file with all data embedded; no backend server required.
@@ -29,6 +32,14 @@ python3 generate_report.py \
     [--kerncvs] \
     [--output <OUTPUT_FILE>]
 ```
+
+### URL Parameters
+
+The generated HTML report supports configuration via URL parameters:
+- `theme`: `light` or `dark` (e.g., `report.html?theme=dark`)
+- `rows`: Number of rows per page (e.g., `report.html?rows=100`)
+
+These parameters take precedence over stored preferences and script defaults.
 
 ### Arguments
 
