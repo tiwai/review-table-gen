@@ -364,6 +364,12 @@ def main():
         // Initialize rows per page select
         document.getElementById('rowsPerPageSelect').value = rowsPerPage;
 
+        // Initialize search from URL
+        const initialSearch = urlParams.get('search') || "";
+        if (initialSearch) {{
+            document.getElementById('subjectSearch').value = initialSearch;
+        }}
+
         function setRowsPerPage(value) {{
             rowsPerPage = parseInt(value);
             currentPage = 1;
@@ -686,7 +692,7 @@ def main():
             }}
         }}
 
-        renderTable();
+        applyFilter();
     </script>
 </body>
 </html>

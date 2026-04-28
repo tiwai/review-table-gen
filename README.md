@@ -38,6 +38,7 @@ python3 generate_report.py \
 The generated HTML report supports configuration via URL parameters:
 - `theme`: `light` or `dark` (e.g., `report.html?theme=dark`)
 - `rows`: Number of rows per page (e.g., `report.html?rows=100`)
+- `search`: Initial search text for subjects (e.g., `report.html?search=scsi`)
 
 These parameters take precedence over stored preferences and script defaults.
 
