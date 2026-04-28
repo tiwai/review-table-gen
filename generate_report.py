@@ -198,6 +198,41 @@ def main():
             --inline-view-bg: #1a1a1b;
         }}
 
+        [data-theme="psychedelic"] {{
+            --bg-color: #2d004d;
+            --text-color: #00ffcc;
+            --table-bg: #3d0066;
+            --table-border: #ff00ff;
+            --header-bg: #4d0080;
+            --dataset-header-bg: #5d0099;
+            --link-color: #ffff00;
+            --btn-bg: #ff00ff;
+            --btn-text: #fff;
+            --modal-bg: rgba(77,0,128,0.8);
+            --modal-content-bg: #2d004d;
+            --pre-bg: #1a0033;
+            --pre-border: #ff00ff;
+            --diff-added-bg: #004d00;
+            --diff-added-text: #00ff00;
+            --diff-removed-bg: #4d0000;
+            --diff-removed-text: #ff0000;
+            --diff-header-bg: #00004d;
+            --diff-header-text: #00ffff;
+            --diff-meta-text: #ff00ff;
+            --review-subject-bg: #4d0080;
+            --review-subject-text: #ffff00;
+            --severity-high-bg: #ff0000;
+            --severity-high-text: #fff;
+            --severity-medium-bg: #ff8000;
+            --severity-medium-text: #fff;
+            --severity-low-bg: #00ff00;
+            --severity-low-text: #000;
+            --finding-item-bg: #3d0066;
+            --code-block-bg: #1a0033;
+            --code-block-border: #ff00ff;
+            --inline-view-bg: #2d004d;
+        }}
+
         body {{ font-family: sans-serif; margin: 20px; background-color: var(--bg-color); color: var(--text-color); }}
         h1 {{ color: var(--text-color); }}
         table {{ border-collapse: collapse; width: 100%; background: var(--table-bg); margin-bottom: 20px; }}
@@ -326,12 +361,11 @@ def main():
 
     <div class="theme-switcher">
         <span>Theme:</span>
-        <label>
-            <input type="radio" name="theme" value="light" checked onclick="setTheme('light')"> Light
-        </label>
-        <label>
-            <input type="radio" name="theme" value="dark" onclick="setTheme('dark')"> Dark
-        </label>
+        <select id="themeSelect" onchange="setTheme(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="psychedelic">Psychedelic</option>
+        </select>
 
         <span style="margin-left: 20px;">Rows per page:</span>
         <select id="rowsPerPageSelect" onchange="setRowsPerPage(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
@@ -347,6 +381,7 @@ def main():
         function setTheme(theme) {{
             document.documentElement.setAttribute('data-theme', theme);
             localStorage.setItem('theme', theme);
+            document.getElementById('themeSelect').value = theme;
         }}
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -354,7 +389,6 @@ def main():
         // Initialize theme
         let savedTheme = urlParams.get('theme') || localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
         setTheme(savedTheme);
-        document.querySelector(`input[name="theme"][value="${{savedTheme}}"]`).checked = true;
 
         const data = {json_data};
         const datasets = {datasets_list};
