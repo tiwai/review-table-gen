@@ -50,9 +50,11 @@ python3 generate_report.py \
 ### URL Parameters
 
 The generated HTML report supports configuration via URL parameters:
-- `theme`: `light` or `dark` (e.g., `report.html?theme=dark`)
-- `rows`: Number of rows per page (e.g., `report.html?rows=100`)
-- `search`: Initial search text for subjects (e.g., `report.html?search=scsi`)
+- `theme`: `light`, `dark`, or `psychedelic` (e.g., `?theme=dark`)
+- `rows`: Number of rows per page (e.g., `?rows=100`)
+- `search`: Initial search text for subjects (e.g., `?search=scsi`)
+- `author`: Initial author filter (e.g., `?author=Name%20Surname`)
+- `severity`: Initial severity filter: `all`, `low`, `medium`, or `high` (e.g., `?severity=high`)
 
 These parameters take precedence over stored preferences and script defaults.
 

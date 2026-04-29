@@ -425,6 +425,24 @@ def main():
             document.getElementById('subjectSearch').value = initialSearch;
         }}
 
+        // Initialize author from URL
+        const initialAuthor = urlParams.get('author');
+        if (initialAuthor) {{
+            const filter = document.getElementById('authorFilter');
+            if ([...filter.options].some(o => o.value === initialAuthor)) {{
+                filter.value = initialAuthor;
+            }}
+        }}
+
+        // Initialize severity from URL
+        const initialSeverity = urlParams.get('severity');
+        if (initialSeverity) {{
+            const filter = document.getElementById('severityFilter');
+            if ([...filter.options].some(o => o.value === initialSeverity)) {{
+                filter.value = initialSeverity;
+            }}
+        }}
+
         function setRowsPerPage(value) {{
             rowsPerPage = parseInt(value);
             currentPage = 1;
