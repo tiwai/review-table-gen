@@ -429,8 +429,16 @@ def main():
         const initialAuthor = urlParams.get('author');
         if (initialAuthor) {{
             const filter = document.getElementById('authorFilter');
-            if ([...filter.options].some(o => o.value === initialAuthor)) {{
-                filter.value = initialAuthor;
+            // Try exact match first
+            let option = [...filter.options].find(o => o.value === initialAuthor);
+            // If not found, try partial match (e.g. email or partial name)
+            if (!option) {{
+                const lowerSearch = initialAuthor.toLowerCase();
+                option = [...filter.options].find(o => o.value.toLowerCase().includes(lowerSearch));
+            }}
+            
+            if (option) {{
+                filter.value = option.value;
             }}
         }}
 
