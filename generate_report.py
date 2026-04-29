@@ -338,6 +338,14 @@ def main():
             {author_options}
         </select>
 
+        <label for="severityFilter" style="margin-left: 20px;">Severity:</label>
+        <select id="severityFilter" onchange="applyFilter()" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
+            <option value="all">All Issues</option>
+            <option value="low">Low+</option>
+            <option value="medium">Medium+</option>
+            <option value="high">High</option>
+        </select>
+
         <label for="subjectSearch" style="margin-left: 20px;">Search Subject:</label>
         <input type="text" id="subjectSearch" oninput="applyFilter()" placeholder="Search..." style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border); padding: 4px;">
     </div>
@@ -431,15 +439,28 @@ def main():
 
         function applyFilter() {{
             const author = document.getElementById('authorFilter').value;
+            const severityThreshold = document.getElementById('severityFilter').value;
             const searchText = document.getElementById('subjectSearch').value.toLowerCase();
 
+            const severityMap = {{ "none": 0, "low": 1, "medium": 2, "high": 3 }};
+            const thresholdValue = severityMap[severityThreshold] || 0;
+
             filteredData = data.filter(item => {{
-                const matchesAuthor = (author === "All Authors") || 
-                    Object.values(item.reviews).some(r => r.metadata && r.metadata.author === author);
+                const reviews = Object.values(item.reviews);
                 
+                const matchesAuthor = (author === "All Authors") || 
+                    reviews.some(r => r.metadata && r.metadata.author === author);
+                
+                const matchesSeverity = (severityThreshold === "all") ||
+                    reviews.some(r => {{
+                        if (!r.metadata) return false;
+                        const score = (r.metadata['issue-severity-score'] || "none").toLowerCase();
+                        return (severityMap[score] || 0) >= thresholdValue;
+                    }});
+
                 const matchesSubject = item.subject.toLowerCase().includes(searchText);
                 
-                return matchesAuthor && matchesSubject;
+                return matchesAuthor && matchesSeverity && matchesSubject;
             }});
             currentPage = 1;
             renderTable();
