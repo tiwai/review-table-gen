@@ -137,6 +137,7 @@ def main():
 <head>
     <meta charset="UTF-8">
     <title>Potential Regressions Found in {branch} Tree</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Crect%20width='100'%20height='100'%20rx='20'%20fill='%23007bff'/%3E%3Ctext%20x='50%25'%20y='50%25'%20dominant-baseline='central'%20text-anchor='middle'%20fill='white'%20font-size='60'%20font-family='sans-serif'%20font-weight='bold'%3EK%3C/text%3E%3C/svg%3E">
     <style>
         :root {{
             --bg-color: #f4f4f9;
