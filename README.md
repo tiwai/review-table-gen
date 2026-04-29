@@ -16,6 +16,20 @@ A Python-based tool to generate a single, standalone static HTML report for Linu
 - **Standalone**: Generates a single HTML file with all data embedded; no backend server required.
 - **Save Functionality**: Allows users to "save" (download) modified review content directly from the browser.
 
+## Review Table
+
+The generated report features a comprehensive table with the following columns:
+
+- **Subject**: The commit subject line from the input list.
+- **Commit ID**: Links to the downstream (expanded) kernel tree commit.
+- **kernel-source**: Links to the `kernel-source.git` commit corresponding to the patch.
+- **Issues**: Displays the number of potential issues found.
+    - **Brackets `[N]`**: Indicates the number of issues unique to the SUSE downstream backport.
+    - **Highlighting**: Cells with downstream-only issues (where total issues > 0) are highlighted with a distinct background color.
+    - **Asterisk `*`**: Indicates that pre-verified findings are available for this review.
+- **Severity**: The estimated severity level of the regression (None, Low, Medium, High).
+- **Review Time**: The time spent by the model reviewing the commit, in seconds.
+
 ## Requirements
 
 - Python 3.x (No external dependencies required).
