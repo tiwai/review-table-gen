@@ -578,8 +578,7 @@ def main():
             const totalPages = Math.ceil(filteredData.length / rowsPerPage);
             let html = '';
             if (totalPages > 1) {{
-                // First and Previous buttons
-                html += `<button onclick="goToPage(1)" title="First Page">&lt;&lt;</button>`;
+                // Previous button
                 html += `<button onclick="goToPage(${{Math.max(1, currentPage - 1)}})" title="Previous Page">&lt;</button>`;
 
                 const delta = 2; // Number of pages to show around current page
@@ -616,9 +615,8 @@ def main():
                     }}
                 }}
 
-                // Next and Last buttons
+                // Next button
                 html += `<button onclick="goToPage(${{Math.min(totalPages, currentPage + 1)}})" title="Next Page">&gt;</button>`;
-                html += `<button onclick="goToPage(${{totalPages}})" title="Last Page">&gt;&gt;</button>`;
             }}
             document.getElementById('paginationContainer').innerHTML = html;
         }}
