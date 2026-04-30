@@ -406,6 +406,33 @@ def main():
         </div>
     </div>
 
+    <!-- Modals -->
+    <div id="reviewModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('reviewModal')">&times;</span>
+            <h2 id="modalTitle">Review Results</h2>
+            <div id="modalBody"></div>
+            <div class="btn-container">
+                <button class="btn" onclick="saveContent()">Save</button>
+                <button id="preVerifyBtn" class="btn btn-secondary" style="display:none">Pre-Verified Issues</button>
+                <button class="btn btn-secondary" onclick="closeModal('reviewModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="preVerifyModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('preVerifyModal')">&times;</span>
+            <h2>Pre-Verified Issues</h2>
+            <p class="warning">Warning: may contain false-positives</p>
+            <div id="preVerifyBody"></div>
+            <div class="btn-container">
+                <button class="btn" onclick="savePreVerifyContent()">Save</button>
+                <button class="btn btn-secondary" onclick="closeModal('preVerifyModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let data = [];
         let datasets = [];
