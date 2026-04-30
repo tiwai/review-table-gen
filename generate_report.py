@@ -21,10 +21,12 @@
 # SOFTWARE.
 
 import argparse
+import base64
 import html
 import json
 import os
 import sys
+import zlib
 
 def resolve_full_id(dataset_dir, commit_id):
     """If commit_id is short, find the full 40-char ID in the dataset."""
@@ -402,56 +404,71 @@ def main():
     </div>
 
     <script>
+        let data = [];
+        let datasets = [];
+        let rowsPerPage = {rows_per_page};
+        let useKernCVS = {use_kerncvs};
+        let commitBaseUrl = "";
+        let ksBaseUrl = "";
+        let currentPage = 1;
+        let filteredData = [];
+        let activeReview = null;
+
+        async function init() {{
+            const compressed = "{compressed_json}";
+            const binary = atob(compressed);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            
+            const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+            const text = await new Response(stream).text();
+            data = JSON.parse(text);
+            datasets = {datasets_list};
+            filteredData = data;
+
+            commitBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=" : "https://github.com/SUSE/kernel/commit/";
+            ksBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=" : "https://github.com/SUSE/kernel-source/commit/";
+
+            const urlParams = new URLSearchParams(window.location.search);
+
+            // Initialize theme
+            let savedTheme = urlParams.get('theme') || localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            setTheme(savedTheme);
+
+            rowsPerPage = parseInt(urlParams.get('rows')) || rowsPerPage;
+            document.getElementById('rowsPerPageSelect').value = rowsPerPage;
+
+            const initialSearch = urlParams.get('search') || "";
+            if (initialSearch) {{
+                document.getElementById('subjectSearch').value = initialSearch;
+            }}
+
+            const initialAuthor = urlParams.get('author');
+            if (initialAuthor) {{
+                const filter = document.getElementById('authorFilter');
+                let option = [...filter.options].find(o => o.value === initialAuthor);
+                if (!option) {{
+                    const lowerSearch = initialAuthor.toLowerCase();
+                    option = [...filter.options].find(o => o.value.toLowerCase().includes(lowerSearch));
+                }}
+                if (option) filter.value = option.value;
+            }}
+
+            const initialSeverity = urlParams.get('severity');
+            if (initialSeverity) {{
+                const filter = document.getElementById('severityFilter');
+                if ([...filter.options].some(o => o.value === initialSeverity)) {{
+                    filter.value = initialSeverity;
+                }}
+            }}
+
+            applyFilter();
+        }}
+
         function setTheme(theme) {{
             document.documentElement.setAttribute('data-theme', theme);
             localStorage.setItem('theme', theme);
             document.getElementById('themeSelect').value = theme;
-        }}
-
-        const urlParams = new URLSearchParams(window.location.search);
-
-        // Initialize theme
-        let savedTheme = urlParams.get('theme') || localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-        setTheme(savedTheme);
-
-        const data = {json_data};
-        const datasets = {datasets_list};
-        let rowsPerPage = parseInt(urlParams.get('rows')) || {rows_per_page};
-        const useKernCVS = {use_kerncvs};
-
-        // Initialize rows per page select
-        document.getElementById('rowsPerPageSelect').value = rowsPerPage;
-
-        // Initialize search from URL
-        const initialSearch = urlParams.get('search') || "";
-        if (initialSearch) {{
-            document.getElementById('subjectSearch').value = initialSearch;
-        }}
-
-        // Initialize author from URL
-        const initialAuthor = urlParams.get('author');
-        if (initialAuthor) {{
-            const filter = document.getElementById('authorFilter');
-            // Try exact match first
-            let option = [...filter.options].find(o => o.value === initialAuthor);
-            // If not found, try partial match (e.g. email or partial name)
-            if (!option) {{
-                const lowerSearch = initialAuthor.toLowerCase();
-                option = [...filter.options].find(o => o.value.toLowerCase().includes(lowerSearch));
-            }}
-            
-            if (option) {{
-                filter.value = option.value;
-            }}
-        }}
-
-        // Initialize severity from URL
-        const initialSeverity = urlParams.get('severity');
-        if (initialSeverity) {{
-            const filter = document.getElementById('severityFilter');
-            if ([...filter.options].some(o => o.value === initialSeverity)) {{
-                filter.value = initialSeverity;
-            }}
         }}
 
         function setRowsPerPage(value) {{
@@ -459,12 +476,6 @@ def main():
             currentPage = 1;
             renderTable();
         }}
-        const commitBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=" : "https://github.com/SUSE/kernel/commit/";
-        const ksBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=" : "https://github.com/SUSE/kernel-source/commit/";
-
-        let currentPage = 1;
-        let filteredData = data;
-        let activeReview = null;
 
         function applyFilter() {{
             const author = document.getElementById('authorFilter').value;
@@ -847,7 +858,7 @@ def main():
             }}
         }}
 
-        applyFilter();
+        init();
     </script>
 </body>
 </html>
@@ -857,10 +868,13 @@ def main():
     
     datasets_list = [d[0] for d in args.dataset]
     
+    json_data = json.dumps(processed_data, separators=(',', ':'))
+    compressed_data = base64.b64encode(zlib.compress(json_data.encode('utf-8'))).decode('ascii')
+
     full_html = html_template.format(
         branch=html.escape(args.branch),
         author_options=author_options,
-        json_data=json.dumps(processed_data),
+        compressed_json=compressed_data,
         datasets_list=json.dumps(datasets_list),
         rows_per_page=args.rows,
         use_kerncvs="true" if args.kerncvs else "false"

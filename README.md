@@ -14,6 +14,7 @@ A Python-based tool to generate a single, standalone static HTML report for Linu
     - **Pre-verification Results**: Structured display of findings (Category, Type, Severity, Evidence).
 - **Navigation**: Support for both GitHub and SUSE KernCVS links.
 - **Standalone**: Generates a single HTML file with all data embedded; no backend server required.
+- **Data Compression**: Embedded review data is compressed (zlib/deflate) to significantly reduce the HTML file size.
 - **Save Functionality**: Allows users to "save" (download) modified review content directly from the browser.
 
 ## Review Table
@@ -33,6 +34,7 @@ The generated report features a comprehensive table with the following columns:
 ## Requirements
 
 - Python 3.x (No external dependencies required).
+- A modern web browser (Chrome 103+, Firefox 113+, Safari 16.4+) for viewing reports (required for decompression support).
 
 ## Usage
 
