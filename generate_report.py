@@ -258,6 +258,7 @@ def main():
         .pagination {{ margin: 20px 0; display: flex; gap: 5px; }}
         .pagination button {{ padding: 5px 10px; cursor: pointer; border: 1px solid var(--table-border); background: var(--table-bg); color: var(--text-color); }}
         .pagination button.active {{ background-color: var(--btn-bg); color: var(--btn-text); border-color: var(--btn-bg); }}
+        .pagination span.ellipsis {{ padding: 5px 10px; color: var(--text-color); opacity: 0.6; }}
         .filter-container {{ margin-bottom: 20px; }}
         .subject-cell {{ 
             max-width: 400px;
@@ -565,12 +566,47 @@ def main():
             const totalPages = Math.ceil(filteredData.length / rowsPerPage);
             let html = '';
             if (totalPages > 1) {{
-                html += `<button onclick="goToPage(1)">&lt;&lt;</button>`;
-                for (let i = 1; i <= totalPages; i++) {{
+                // First and Previous buttons
+                html += `<button onclick="goToPage(1)" title="First Page">&lt;&lt;</button>`;
+                html += `<button onclick="goToPage(${{Math.max(1, currentPage - 1)}})" title="Previous Page">&lt;</button>`;
+
+                const delta = 2; // Number of pages to show around current page
+                const range = [];
+                for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {{
+                    range.push(i);
+                }}
+
+                if (currentPage > delta + 2) {{
+                    html += `<button onclick="goToPage(1)">1</button>`;
+                    html += `<span class="ellipsis">...</span>`;
+                }} else {{
+                    // Show pages from 1 up to the start of range
+                    for (let i = 1; i < (range.length ? range[0] : totalPages + 1); i++) {{
+                        const activeClass = i === currentPage ? 'active' : '';
+                        html += `<button class="${{activeClass}}" onclick="goToPage(${{i}})">${{i}}</button>`;
+                    }}
+                }}
+
+                range.forEach(i => {{
                     const activeClass = i === currentPage ? 'active' : '';
                     html += `<button class="${{activeClass}}" onclick="goToPage(${{i}})">${{i}}</button>`;
+                }});
+
+                if (currentPage < totalPages - delta - 1) {{
+                    html += `<span class="ellipsis">...</span>`;
+                    html += `<button onclick="goToPage(${{totalPages}})">${{totalPages}}</button>`;
+                }} else {{
+                    // Show pages from end of range up to totalPages
+                    const start = range.length ? range[range.length - 1] + 1 : (currentPage > delta + 2 ? totalPages + 1 : 1);
+                    for (let i = start; i <= totalPages; i++) {{
+                        const activeClass = i === currentPage ? 'active' : '';
+                        html += `<button class="${{activeClass}}" onclick="goToPage(${{i}})">${{i}}</button>`;
+                    }}
                 }}
-                html += `<button onclick="goToPage(${{totalPages}})">&gt;&gt;</button>`;
+
+                // Next and Last buttons
+                html += `<button onclick="goToPage(${{Math.min(totalPages, currentPage + 1)}})" title="Next Page">&gt;</button>`;
+                html += `<button onclick="goToPage(${{totalPages}})" title="Last Page">&gt;&gt;</button>`;
             }}
             document.getElementById('paginationContainer').innerHTML = html;
         }}
