@@ -258,7 +258,8 @@ def main():
         .pagination {{ margin: 20px 0; display: flex; gap: 5px; }}
         .pagination button {{ padding: 5px 10px; cursor: pointer; border: 1px solid var(--table-border); background: var(--table-bg); color: var(--text-color); }}
         .pagination button.active {{ background-color: var(--btn-bg); color: var(--btn-text); border-color: var(--btn-bg); }}
-        .pagination span.ellipsis {{ padding: 5px 10px; color: var(--text-color); opacity: 0.6; }}
+        .pagination .ellipsis {{ padding: 5px 10px; color: var(--text-color); opacity: 0.6; cursor: pointer; }}
+        .pagination .ellipsis:hover {{ opacity: 1; text-decoration: underline; }}
         .filter-container {{ margin-bottom: 20px; }}
         .subject-cell {{ 
             max-width: 400px;
@@ -578,7 +579,7 @@ def main():
 
                 if (currentPage > delta + 2) {{
                     html += `<button onclick="goToPage(1)">1</button>`;
-                    html += `<span class="ellipsis">...</span>`;
+                    html += `<span class="ellipsis" onclick="jumpToPage()" title="Jump to page">...</span>`;
                 }} else {{
                     // Show pages from 1 up to the start of range
                     for (let i = 1; i < (range.length ? range[0] : totalPages + 1); i++) {{
@@ -593,7 +594,7 @@ def main():
                 }});
 
                 if (currentPage < totalPages - delta - 1) {{
-                    html += `<span class="ellipsis">...</span>`;
+                    html += `<span class="ellipsis" onclick="jumpToPage()" title="Jump to page">...</span>`;
                     html += `<button onclick="goToPage(${{totalPages}})">${{totalPages}}</button>`;
                 }} else {{
                     // Show pages from end of range up to totalPages
@@ -614,6 +615,19 @@ def main():
         function goToPage(p) {{
             currentPage = p;
             renderTable();
+        }}
+
+        function jumpToPage() {{
+            const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+            const p = prompt(`Enter page number (1-${{totalPages}}):`, currentPage);
+            if (p !== null) {{
+                const pageNum = parseInt(p);
+                if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {{
+                    goToPage(pageNum);
+                }} else {{
+                    alert("Invalid page number.");
+                }}
+            }}
         }}
 
         function formatMarkdown(text, isInline) {{
