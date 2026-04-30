@@ -262,6 +262,20 @@ def main():
         .pagination button.active {{ background-color: var(--btn-bg); color: var(--btn-text); border-color: var(--btn-bg); }}
         .pagination .ellipsis {{ padding: 5px 10px; color: var(--text-color); opacity: 0.6; cursor: pointer; }}
         .pagination .ellipsis:hover {{ opacity: 1; text-decoration: underline; }}
+        
+        .controls-container {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 20px 0;
+            flex-wrap: wrap;
+            gap: 10px;
+        }}
+        .theme-switcher {{
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }}
         .filter-container {{ margin-bottom: 20px; }}
         .subject-cell {{ 
             max-width: 400px;
@@ -322,15 +336,6 @@ def main():
         .review-metadata {{ color: var(--diff-header-text); font-weight: bold; }}
         .review-subject {{ color: var(--review-subject-text); font-weight: bold; font-size: 1.1em; background-color: var(--review-subject-bg); padding: 5px; border-radius: 3px; display: block; margin: 5px 0; }}
         .review-link {{ text-decoration: underline; color: var(--link-color); }}
-
-        .theme-switcher {{
-            margin-top: 50px;
-            padding: 20px;
-            border-top: 1px solid var(--table-border);
-            display: flex;
-            gap: 20px;
-            align-items: center;
-        }}
     </style>
 </head>
 <body>
@@ -355,52 +360,50 @@ def main():
         <input type="text" id="subjectSearch" oninput="applyFilter()" placeholder="Search..." style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border); padding: 4px;">
     </div>
 
-    <div id="paginationContainer" class="pagination"></div>
+    <div class="controls-container">
+        <div id="paginationContainerTop" class="pagination"></div>
+        
+        <div class="theme-switcher">
+            <span>Theme:</span>
+            <select class="themeSelect" onchange="setTheme(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="psychedelic">Psychedelic</option>
+            </select>
+
+            <span style="margin-left: 20px;">Rows:</span>
+            <select class="rowsPerPageSelect" onchange="setRowsPerPage(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+            </select>
+        </div>
+    </div>
+
     <div id="tableContainer"></div>
 
-    <!-- Modals -->
-    <div id="reviewModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('reviewModal')">&times;</span>
-            <h2 id="modalTitle">Review Results</h2>
-            <div id="modalBody"></div>
-            <div class="btn-container">
-                <button class="btn" onclick="saveContent()">Save</button>
-                <button id="preVerifyBtn" class="btn btn-secondary" style="display:none">Pre-Verified Issues</button>
-                <button class="btn btn-secondary" onclick="closeModal('reviewModal')">Close</button>
-            </div>
+    <div class="controls-container">
+        <div id="paginationContainerBottom" class="pagination"></div>
+        
+        <div class="theme-switcher">
+            <span>Theme:</span>
+            <select class="themeSelect" onchange="setTheme(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="psychedelic">Psychedelic</option>
+            </select>
+
+            <span style="margin-left: 20px;">Rows:</span>
+            <select class="rowsPerPageSelect" onchange="setRowsPerPage(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+            </select>
         </div>
-    </div>
-
-    <div id="preVerifyModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('preVerifyModal')">&times;</span>
-            <h2>Pre-Verified Issues</h2>
-            <p class="warning">Warning: may contain false-positives</p>
-            <div id="preVerifyBody"></div>
-            <div class="btn-container">
-                <button class="btn" onclick="savePreVerifyContent()">Save</button>
-                <button class="btn btn-secondary" onclick="closeModal('preVerifyModal')">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="theme-switcher">
-        <span>Theme:</span>
-        <select id="themeSelect" onchange="setTheme(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-            <option value="psychedelic">Psychedelic</option>
-        </select>
-
-        <span style="margin-left: 20px;">Rows per page:</span>
-        <select id="rowsPerPageSelect" onchange="setRowsPerPage(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
-            <option value="20">20</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-            <option value="200">200</option>
-            <option value="500">500</option>
-        </select>
     </div>
 
     <script>
@@ -436,7 +439,7 @@ def main():
             setTheme(savedTheme);
 
             rowsPerPage = parseInt(urlParams.get('rows')) || rowsPerPage;
-            document.getElementById('rowsPerPageSelect').value = rowsPerPage;
+            document.querySelectorAll('.rowsPerPageSelect').forEach(s => s.value = rowsPerPage);
 
             const initialSearch = urlParams.get('search') || "";
             if (initialSearch) {{
@@ -468,11 +471,12 @@ def main():
         function setTheme(theme) {{
             document.documentElement.setAttribute('data-theme', theme);
             localStorage.setItem('theme', theme);
-            document.getElementById('themeSelect').value = theme;
+            document.querySelectorAll('.themeSelect').forEach(s => s.value = theme);
         }}
 
         function setRowsPerPage(value) {{
             rowsPerPage = parseInt(value);
+            document.querySelectorAll('.rowsPerPageSelect').forEach(s => s.value = value);
             currentPage = 1;
             renderTable();
         }}
@@ -618,7 +622,10 @@ def main():
                 // Next button
                 html += `<button onclick="goToPage(${{Math.min(totalPages, currentPage + 1)}})" title="Next Page">&gt;</button>`;
             }}
-            document.getElementById('paginationContainer').innerHTML = html;
+            const top = document.getElementById('paginationContainerTop');
+            const bottom = document.getElementById('paginationContainerBottom');
+            if (top) top.innerHTML = html;
+            if (bottom) bottom.innerHTML = html;
         }}
 
         function goToPage(p) {{
