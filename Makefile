@@ -14,7 +14,7 @@ test:
 	./generate_report.py --list test/list-test \
 		--dataset gemma-4 test/data/gemma-4 \
 		--dataset qwen3.6-q4 test/data/qwen3.6-q4 \
-		--branch SLE12-SP5 --output test-report.html
+		--title "SLE12-SP5 Potential Regressions" --output test-report.html
 
 clean:
 	rm -rf __pycache__

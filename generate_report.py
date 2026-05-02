@@ -99,7 +99,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate kernel review report.")
     parser.add_argument("--list", required=True, help="Commit list file")
     parser.add_argument("--dataset", action="append", nargs=2, metavar=("NAME", "DIR"), help="Dataset name and directory")
-    parser.add_argument("--branch", required=True, help="Branch name")
+    parser.add_argument("--title", default="Potential Regressions", help="Report title")
     parser.add_argument("--git", help="Git repository for dataset")
     parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
     parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
@@ -183,7 +183,7 @@ def main():
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Potential Regressions Found in {branch} Tree</title>
+    <title>{title}</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Crect%20width='100'%20height='100'%20rx='20'%20fill='%23007bff'/%3E%3Ctext%20x='50%25'%20y='50%25'%20dominant-baseline='central'%20text-anchor='middle'%20fill='white'%20font-size='60'%20font-family='sans-serif'%20font-weight='bold'%3EK%3C/text%3E%3C/svg%3E">
     <style>
         :root {{
@@ -384,7 +384,7 @@ def main():
     </style>
 </head>
 <body>
-    <h1>Potential Regressions Found in {branch} Tree</h1>
+    <h1>{title}</h1>
     
     <div class="filter-container">
         <label for="authorFilter">Filter by Author:</label>
@@ -536,6 +536,9 @@ def main():
                     filter.value = initialSeverity;
                 }}
             }}
+
+            // Re-apply theme to ensure all instances are synchronized
+            setTheme(document.documentElement.getAttribute('data-theme') || savedTheme);
 
             applyFilter();
         }}
@@ -949,7 +952,7 @@ def main():
     compressed_data = base64.b64encode(zlib.compress(json_data.encode('utf-8'))).decode('ascii')
 
     full_html = html_template.format(
-        branch=html.escape(args.branch),
+        title=html.escape(args.title),
         author_options=author_options,
         compressed_json=compressed_data,
         datasets_list=json.dumps(datasets_list),
