@@ -10,6 +10,7 @@ A Python-based tool to generate a single, standalone static HTML report for Linu
 - **Author Filtering**: Quickly filter results by the author of the review.
 - **Rich Visualization**:
     - **Inline Reviews**: Pretty-formatted metadata (Author, Commits, Subjects) and diffs with syntax highlighting and Markdown support.
+    - **Fix Patches**: If a `review-fix-patches.diff` is provided and issues are found, a "Fix Patch" button appears to show suggested fixes in a pretty diff format.
     - **Automatic Linkification**: Direct links to upstream Linux kernel, downstream kernel, and kernel-source repositories from within the review popup.
     - **Pre-verification Results**: Structured display of findings (Category, Type, Severity, Evidence).
 - **Navigation**: Support for both GitHub and SUSE KernCVS links.
@@ -87,6 +88,7 @@ The tool expects review datasets to follow a git-like object storage format:
     - `review-metadata.json` (Required)
     - `review-inline.txt` (Optional, contains diffs/comments)
     - `review-pre-verification.json` (Optional, contains structured findings)
+    - `review-fix-patches.diff` (Optional, contains suggested fix patches)
 
 ## License
 

@@ -92,6 +92,10 @@ def get_review_data(dataset, full_id):
     pre_verification_content = get_blob_content("review-pre-verification.json")
     if pre_verification_content:
         data["pre_verification"] = pre_verification_content
+
+    fix_patches_content = get_blob_content("review-fix-patches.diff")
+    if fix_patches_content:
+        data["fix_patches"] = fix_patches_content
             
     return data if data else None
 
@@ -478,6 +482,19 @@ def main():
         </div>
     </div>
 
+    <div id="fixPatchModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('fixPatchModal')">&times;</span>
+            <h2>Fix Patch</h2>
+            <p class="warning">Warning: Patches can be bogus, use only as a reference</p>
+            <div id="fixPatchBody" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;"></div>
+            <div class="btn-container">
+                <button class="btn" onclick="saveFixPatch()">Save</button>
+                <button class="btn btn-secondary" onclick="closeModal('fixPatchModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let data = [];
         let datasets = [];
@@ -756,6 +773,14 @@ def main():
                     .replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>')
                     .replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
                 
+                let className = "";
+                if (cleanLine.startsWith('+++') || cleanLine.startsWith('---')) className = "diff-meta";
+                else if (cleanLine.startsWith('+')) className = "diff-added";
+                else if (cleanLine.startsWith('-')) className = "diff-removed";
+                else if (cleanLine.startsWith('@@')) className = "diff-header";
+                else if (cleanLine.startsWith('diff --git') || cleanLine.startsWith('index ')) className = "diff-meta";
+                else if (cleanLine.startsWith('#')) className = "diff-meta";
+
                 if (isInline) {{
                     const trimmed = cleanLine.trim();
                     if (trimmed.startsWith('commit ')) {{
@@ -801,24 +826,16 @@ def main():
                             return `<span class="review-subject">${{content}}</span>\\n`;
                         }}
                     }}
-
-                    let className = "";
-                    if (cleanLine.startsWith('+++') || cleanLine.startsWith('---')) className = "diff-meta";
-                    else if (cleanLine.startsWith('+')) className = "diff-added";
-                    else if (cleanLine.startsWith('-')) className = "diff-removed";
-                    else if (cleanLine.startsWith('@@')) className = "diff-header";
-                    else if (cleanLine.startsWith('diff --git') || cleanLine.startsWith('index ')) className = "diff-meta";
-                    
-                    if (className) {{
-                        return `<span class="${{className}}">${{prefixHtml}}${{content}}</span>\\n`;
-                    }}
+                }}
+                
+                if (className) {{
+                    return `<span class="${{className}}">${{prefixHtml}}${{content}}</span>\\n`;
                 }}
                 
                 return `${{prefixHtml}}${{content}}\\n`;
             }});
 
-            const containerClass = isInline ? "inline-content" : "";
-            return `<div class="${{containerClass}}">` + formattedLines.join('') + '</div>';
+            return `<div class="inline-content">` + formattedLines.join('') + '</div>';
         }}
 
         function formatInline(text) {{
@@ -885,6 +902,25 @@ def main():
                 preBtn.style.display = 'none';
             }}
 
+            const fixBtn = document.getElementById('fixPatchBtn');
+            if (review.fix_patches && review.metadata && review.metadata['issues-found'] > 0) {{
+                if (!fixBtn) {{
+                    const btnContainer = document.querySelector('#reviewModal .btn-container');
+                    const newBtn = document.createElement('button');
+                    newBtn.id = 'fixPatchBtn';
+                    newBtn.className = 'btn btn-secondary';
+                    newBtn.innerText = 'Fix Patch';
+                    newBtn.onclick = () => openFixPatch(commitId, dsName);
+                    btnContainer.insertBefore(newBtn, preBtn);
+                }} else {{
+                    fixBtn.style.display = 'block';
+                    fixBtn.className = 'btn btn-secondary';
+                    fixBtn.onclick = () => openFixPatch(commitId, dsName);
+                }}
+            }} else if (fixBtn) {{
+                fixBtn.style.display = 'none';
+            }}
+
             document.getElementById('reviewModal').style.display = 'block';
         }}
 
@@ -895,6 +931,14 @@ def main():
             const body = document.getElementById('preVerifyBody');
             body.innerHTML = renderPreVerification(review.pre_verification);
             document.getElementById('preVerifyModal').style.display = 'block';
+        }}
+
+        function openFixPatch(commitId, dsName) {{
+            const item = data.find(i => i.id === commitId);
+            const review = item.reviews[dsName];
+            const body = document.getElementById('fixPatchBody');
+            body.innerHTML = formatMarkdown(review.fix_patches, false);
+            document.getElementById('fixPatchModal').style.display = 'block';
         }}
 
         function closeModal(id) {{
@@ -925,6 +969,18 @@ def main():
             URL.revokeObjectURL(url);
         }}
 
+        function saveFixPatch() {{
+            if (!activeReview || !activeReview.review.fix_patches) return;
+            const content = activeReview.review.fix_patches;
+            const blob = new Blob([content], {{ type: 'text/plain' }});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'review-fix-patches.diff';
+            a.click();
+            URL.revokeObjectURL(url);
+        }}
+
         window.onclick = function(event) {{
             if (event.target.className === 'modal') {{
                 event.target.style.display = "none";
@@ -935,6 +991,7 @@ def main():
             if (event.key === "Escape") {{
                 closeModal('reviewModal');
                 closeModal('preVerifyModal');
+                closeModal('fixPatchModal');
             }}
         }}
 
