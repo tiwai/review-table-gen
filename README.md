@@ -33,8 +33,15 @@ The generated report features a comprehensive table with the following columns:
 
 ## Requirements
 
-- Python 3.x (No external dependencies required).
+- Python 3.x.
+- Python dependencies listed in `requirements.txt`.
 - A modern web browser (Chrome 103+, Firefox 113+, Safari 16.4+) for viewing reports (required for decompression support).
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
 
@@ -43,7 +50,7 @@ python3 generate_report.py \
     --list <COMMIT_LIST_FILE> \
     --dataset "<DATASET_NAME>" <DATASET_DIR_OR_REF> \
     [--dataset "<DATASET_NAME_2>" <DATASET_DIR_OR_REF_2> ...] \
-    --branch <BRANCH_NAME> \
+    --title "<REPORT_TITLE>" \
     [--git <GIT_REPO_PATH>] \
     [--rows <ROWS_PER_PAGE>] \
     [--kerncvs] \
