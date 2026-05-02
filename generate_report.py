@@ -28,59 +28,79 @@ import os
 import sys
 import zlib
 
-def resolve_full_id(dataset_dir, commit_id):
+def resolve_full_id(dataset, commit_id):
     """If commit_id is short, find the full 40-char ID in the dataset."""
     if len(commit_id) == 40:
         return commit_id
     
     prefix = commit_id[:2]
-    prefix_dir = os.path.join(dataset_dir, prefix)
-    if not os.path.isdir(prefix_dir):
-        return None
     
-    matches = [d for d in os.listdir(prefix_dir) if d.startswith(commit_id)]
+    if isinstance(dataset, str): # Directory path
+        prefix_dir = os.path.join(dataset, prefix)
+        if not os.path.isdir(prefix_dir):
+            return None
+        try:
+            matches = [d for d in os.listdir(prefix_dir) if d.startswith(commit_id)]
+        except:
+            return None
+    else: # Git Tree object
+        try:
+            prefix_tree = dataset[prefix]
+            matches = [item.name for item in prefix_tree if item.type == 'tree' and item.name.startswith(commit_id)]
+        except KeyError:
+            return None
+    
     if len(matches) == 1:
         return matches[0]
     return None
 
-def get_review_data(dataset_dir, full_id):
+def get_review_data(dataset, full_id):
     """Retrieve all review files for a given commit in a dataset."""
-    commit_dir = os.path.join(dataset_dir, full_id[:2], full_id)
-    if not os.path.isdir(commit_dir):
-        return None
-    
+    prefix = full_id[:2]
     data = {}
-    metadata_path = os.path.join(commit_dir, "review-metadata.json")
-    if os.path.exists(metadata_path):
-        with open(metadata_path, "r") as f:
-            data["metadata"] = json.load(f)
     
-    inline_path = os.path.join(commit_dir, "review-inline.txt")
-    if os.path.exists(inline_path):
-        with open(inline_path, "r") as f:
-            inline_text = f.read()
-            data["inline"] = inline_text
-            # Parse downstream-only findings
-            for line in inline_text.splitlines():
-                if line.startswith("Findings-downstream-only:"):
-                    try:
-                        data["downstream_only"] = int(line.split(":")[1].strip())
-                    except:
-                        pass
-                    break
+    def get_blob_content(path):
+        if isinstance(dataset, str): # Directory path
+            full_path = os.path.join(dataset, prefix, full_id, path)
+            if os.path.exists(full_path):
+                with open(full_path, "r") as f:
+                    return f.read()
+        else: # Git Tree object
+            try:
+                blob = dataset[f"{prefix}/{full_id}/{path}"]
+                return blob.data_stream.read().decode('utf-8')
+            except KeyError:
+                pass
+        return None
+
+    metadata_content = get_blob_content("review-metadata.json")
+    if metadata_content:
+        data["metadata"] = json.loads(metadata_content)
+    
+    inline_text = get_blob_content("review-inline.txt")
+    if inline_text:
+        data["inline"] = inline_text
+        # Parse downstream-only findings
+        for line in inline_text.splitlines():
+            if line.startswith("Findings-downstream-only:"):
+                try:
+                    data["downstream_only"] = int(line.split(":")[1].strip())
+                except:
+                    pass
+                break
             
-    pre_verification_path = os.path.join(commit_dir, "review-pre-verification.json")
-    if os.path.exists(pre_verification_path):
-        with open(pre_verification_path, "r") as f:
-            data["pre_verification"] = f.read() # Read as raw string for display/save
+    pre_verification_content = get_blob_content("review-pre-verification.json")
+    if pre_verification_content:
+        data["pre_verification"] = pre_verification_content
             
-    return data
+    return data if data else None
 
 def main():
     parser = argparse.ArgumentParser(description="Generate kernel review report.")
     parser.add_argument("--list", required=True, help="Commit list file")
     parser.add_argument("--dataset", action="append", nargs=2, metavar=("NAME", "DIR"), help="Dataset name and directory")
     parser.add_argument("--branch", required=True, help="Branch name")
+    parser.add_argument("--git", help="Git repository for dataset")
     parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
     parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
     parser.add_argument("--output", default="report.html", help="Output HTML file")
@@ -106,18 +126,43 @@ def main():
     processed_data = []
     authors = set()
     
+    repo = None
+    if args.git:
+        import git
+        try:
+            repo = git.Repo(args.git)
+        except Exception as e:
+            print(f"Error: Could not open git repository '{args.git}': {e}")
+            sys.exit(1)
+
+    # Pre-resolve dataset trees/dirs
+    dataset_sources = {}
+    for ds_name, ds_src in args.dataset:
+        if repo:
+            try:
+                dataset_sources[ds_name] = repo.commit(ds_src).tree
+            except Exception as e:
+                print(f"Error: Could not find git ref '{ds_src}' in {args.git}: {e}")
+                sys.exit(1)
+        else:
+            if not os.path.isdir(ds_src):
+                print(f"Error: Dataset directory '{ds_src}' not found.")
+                sys.exit(1)
+            dataset_sources[ds_name] = ds_src
+
     for commit in commits:
         commit_reviews = {}
         has_any_review = False
         commit_full_id = None
         
-        for ds_name, ds_dir in args.dataset:
+        for ds_name, ds_src in args.dataset:
+            source = dataset_sources[ds_name]
             # Try to resolve full ID if not already done
             if not commit_full_id:
-                commit_full_id = resolve_full_id(ds_dir, commit["id"])
+                commit_full_id = resolve_full_id(source, commit["id"])
             
             if commit_full_id:
-                data = get_review_data(ds_dir, commit_full_id)
+                data = get_review_data(source, commit_full_id)
                 if data:
                     commit_reviews[ds_name] = data
                     has_any_review = True

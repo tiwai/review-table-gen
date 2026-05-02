@@ -41,9 +41,10 @@ The generated report features a comprehensive table with the following columns:
 ```bash
 python3 generate_report.py \
     --list <COMMIT_LIST_FILE> \
-    --dataset "<DATASET_NAME>" <DATASET_DIR> \
-    [--dataset "<DATASET_NAME_2>" <DATASET_DIR_2> ...] \
+    --dataset "<DATASET_NAME>" <DATASET_DIR_OR_REF> \
+    [--dataset "<DATASET_NAME_2>" <DATASET_DIR_OR_REF_2> ...] \
     --branch <BRANCH_NAME> \
+    [--git <GIT_REPO_PATH>] \
     [--rows <ROWS_PER_PAGE>] \
     [--kerncvs] \
     [--output <OUTPUT_FILE>]
@@ -63,8 +64,9 @@ These parameters take precedence over stored preferences and script defaults.
 ### Arguments
 
 - `--list`: Path to the commit list file (format: `sha subject`).
-- `--dataset`: A pair of dataset name and directory. Can be used multiple times.
+- `--dataset`: A pair of dataset name and directory. If `--git` is provided, the second argument is treated as a git refspec (branch, tag, or commit ID) within that repository. Can be used multiple times.
 - `--branch`: The branch name (used in the report title).
+- `--git`: Optional path to a git repository containing the review datasets.
 - `--rows`: Number of rows per page (default: 50).
 - `--kerncvs`: If set, use `kerncvs.suse.de` links instead of GitHub.
 - `--output`: Path to the output HTML file (default: `report.html`).
