@@ -678,37 +678,26 @@ def main():
                 html += `<button onclick="goToPage(${{Math.max(1, currentPage - 1)}})" title="Previous Page">&lt;</button>`;
 
                 const delta = 2; // Number of pages to show around current page
-                const range = [];
-                for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {{
-                    range.push(i);
-                }}
-
-                if (currentPage > delta + 2) {{
-                    html += `<button onclick="goToPage(1)">1</button>`;
-                    html += `<span class="ellipsis" onclick="jumpToPage()" title="Jump to page">...</span>`;
-                }} else {{
-                    // Show pages from 1 up to the start of range
-                    for (let i = 1; i < (range.length ? range[0] : totalPages + 1); i++) {{
-                        const activeClass = i === currentPage ? 'active' : '';
-                        html += `<button class="${{activeClass}}" onclick="goToPage(${{i}})">${{i}}</button>`;
+                let pages = [];
+                for (let i = 1; i <= totalPages; i++) {{
+                    if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {{
+                        pages.push(i);
                     }}
                 }}
 
-                range.forEach(i => {{
-                    const activeClass = i === currentPage ? 'active' : '';
-                    html += `<button class="${{activeClass}}" onclick="goToPage(${{i}})">${{i}}</button>`;
-                }});
-
-                if (currentPage < totalPages - delta - 1) {{
-                    html += `<span class="ellipsis" onclick="jumpToPage()" title="Jump to page">...</span>`;
-                    html += `<button onclick="goToPage(${{totalPages}})">${{totalPages}}</button>`;
-                }} else {{
-                    // Show pages from end of range up to totalPages
-                    const start = range.length ? range[range.length - 1] + 1 : (currentPage > delta + 2 ? totalPages + 1 : 1);
-                    for (let i = start; i <= totalPages; i++) {{
-                        const activeClass = i === currentPage ? 'active' : '';
-                        html += `<button class="${{activeClass}}" onclick="goToPage(${{i}})">${{i}}</button>`;
+                let lastPage = null;
+                for (let p of pages) {{
+                    if (lastPage !== null) {{
+                        if (p - lastPage === 2) {{
+                            const activeClass = (lastPage + 1) === currentPage ? 'active' : '';
+                            html += `<button class="${{activeClass}}" onclick="goToPage(${{lastPage + 1}})">${{lastPage + 1}}</button>`;
+                        }} else if (p - lastPage > 2) {{
+                            html += `<span class="ellipsis" onclick="jumpToPage()" title="Jump to page">...</span>`;
+                        }}
                     }}
+                    const activeClass = p === currentPage ? 'active' : '';
+                    html += `<button class="${{activeClass}}" onclick="goToPage(${{p}})">${{p}}</button>`;
+                    lastPage = p;
                 }}
 
                 // Next button
