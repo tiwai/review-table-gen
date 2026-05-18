@@ -800,7 +800,10 @@ def main():
                         'Findings-in-upstream: ',
                         'Findings-downstream-only: ',
                         'Review-time: ',
-                        'Review-model: '
+                        'Review-model: ',
+                        'Input-tokens: ',
+                        'Output-tokens: ',
+                        'Total-tokens: '
                     ];
                     if (metaPrefixes.some(p => trimmed.startsWith(p))) {{
                         return `<span class="review-metadata">${{content}}</span>\\n`;
