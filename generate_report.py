@@ -223,6 +223,7 @@ def main():
             --code-block-bg: #f8f9fa;
             --code-block-border: #e1e4e8;
             --downstream-highlight-bg: #fff5b1;
+            --pre-verification-bg: #e8e8e8;
         }}
 
         [data-theme="dark"] {{
@@ -259,6 +260,7 @@ def main():
             --code-block-border: #30363d;
             --inline-view-bg: #1a1a1b;
             --downstream-highlight-bg: #443d00;
+            --pre-verification-bg: #333333;
         }}
 
         [data-theme="psychedelic"] {{
@@ -295,6 +297,7 @@ def main():
             --code-block-border: #ff00ff;
             --inline-view-bg: #2d004d;
             --downstream-highlight-bg: #ff00ff;
+            --pre-verification-bg: #4d0080;
         }}
 
         body {{ font-family: sans-serif; margin: 20px; background-color: var(--bg-color); color: var(--text-color); }}
@@ -304,6 +307,7 @@ def main():
         th {{ background-color: var(--header-bg); }}
         .dataset-header {{ background-color: var(--dataset-header-bg); text-align: center; font-weight: bold; }}
         .issues-cell {{ cursor: pointer; color: var(--link-color); text-decoration: underline; }}
+        .has-pre-verification {{ background-color: var(--pre-verification-bg) !important; }}
         .has-downstream {{ background-color: var(--downstream-highlight-bg) !important; }}
         a {{ color: var(--link-color); }}
         .pagination {{ margin: 20px 0; display: flex; gap: 5px; }}
@@ -641,6 +645,7 @@ def main():
                     if (review && review.metadata) {{
                         const metadata = review.metadata;
                         const hasPre = review.pre_verification ? "*" : "";
+                        const preClass = review.pre_verification ? "has-pre-verification" : "";
                         const severity = (metadata['issue-severity-score'] || "none").toLowerCase();
                         const severityClass = `severity-${{severity}}`;
                         const clickAction = `onclick="openReview('${{item.id}}', '${{dsName}}')"`;
@@ -654,7 +659,7 @@ def main():
                             }}
                         }}
 
-                        html += `<td class="issues-cell ${{dsClass}}" ${{clickAction}}>${{issuesText}}</td>`;
+                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}}" ${{clickAction}}>${{issuesText}}</td>`;
                         html += `<td class="${{severityClass}} issues-cell" ${{clickAction}}>${{metadata['issue-severity-score']}}</td>`;
                         html += `<td>${{metadata['review-time-seconds']}}s</td>`;
                     }} else {{
