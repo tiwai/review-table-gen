@@ -560,18 +560,37 @@ def main():
             visibleDatasets = [...datasets];
             filteredData = data;
 
+            const urlParams = new URLSearchParams(window.location.search);
+
+            // Initialize models/datasets visibility from URL or localStorage
+            const urlModels = urlParams.get('models') || urlParams.get('datasets');
+            if (urlModels) {{
+                const selected = urlModels.split(',');
+                visibleDatasets = datasets.filter(ds => selected.includes(ds));
+            }} else {{
+                const savedModels = localStorage.getItem('visibleDatasets');
+                if (savedModels) {{
+                    try {{
+                        const parsed = JSON.parse(savedModels);
+                        if (Array.isArray(parsed)) {{
+                            visibleDatasets = datasets.filter(ds => parsed.includes(ds));
+                        }}
+                    }} catch (e) {{
+                        // ignore
+                    }}
+                }}
+            }}
+
             renderModelToggles();
 
             commitBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=" : "https://github.com/SUSE/kernel/commit/";
             ksBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=" : "https://github.com/SUSE/kernel-source/commit/";
 
-            const urlParams = new URLSearchParams(window.location.search);
-
             // Initialize theme
             let savedTheme = urlParams.get('theme') || localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
             setTheme(savedTheme);
 
-            rowsPerPage = parseInt(urlParams.get('rows')) || rowsPerPage;
+            rowsPerPage = parseInt(urlParams.get('rows')) || parseInt(localStorage.getItem('rowsPerPage')) || rowsPerPage;
             document.querySelectorAll('.rowsPerPageSelect').forEach(s => s.value = rowsPerPage);
 
             const initialSearch = urlParams.get('search') || "";
@@ -579,7 +598,7 @@ def main():
                 document.getElementById('subjectSearch').value = initialSearch;
             }}
 
-            const initialAuthor = urlParams.get('author');
+            const initialAuthor = urlParams.get('author') || localStorage.getItem('authorFilter');
             if (initialAuthor) {{
                 const filter = document.getElementById('authorFilter');
                 let option = [...filter.options].find(o => o.value === initialAuthor);
@@ -590,7 +609,7 @@ def main():
                 if (option) filter.value = option.value;
             }}
 
-            const initialSeverity = urlParams.get('severity');
+            const initialSeverity = urlParams.get('severity') || localStorage.getItem('severityFilter');
             if (initialSeverity) {{
                 const filter = document.getElementById('severityFilter');
                 if ([...filter.options].some(o => o.value === initialSeverity)) {{
@@ -627,6 +646,7 @@ def main():
             }} else {{
                 visibleDatasets = visibleDatasets.filter(d => d !== ds);
             }}
+            localStorage.setItem('visibleDatasets', JSON.stringify(visibleDatasets));
             renderTable();
         }}
 
@@ -638,6 +658,7 @@ def main():
 
         function setRowsPerPage(value) {{
             rowsPerPage = parseInt(value);
+            localStorage.setItem('rowsPerPage', value);
             document.querySelectorAll('.rowsPerPageSelect').forEach(s => s.value = value);
             currentPage = 1;
             renderTable();
@@ -647,6 +668,9 @@ def main():
             const author = document.getElementById('authorFilter').value;
             const severityThreshold = document.getElementById('severityFilter').value;
             const searchText = document.getElementById('subjectSearch').value.toLowerCase();
+
+            localStorage.setItem('authorFilter', author);
+            localStorage.setItem('severityFilter', severityThreshold);
 
             const severityMap = {{ "none": 0, "low": 1, "medium": 2, "high": 3 }};
             const thresholdValue = severityMap[severityThreshold] || 0;
