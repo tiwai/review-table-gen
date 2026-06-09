@@ -514,6 +514,29 @@ def main():
         let filteredData = [];
         let activeReview = null;
         let visitedReviews = new Set(JSON.parse(localStorage.getItem('visitedReviews') || '[]'));
+        let commitStates = JSON.parse(localStorage.getItem('commitStates') || '{{}}');
+
+        function toggleCommitState(commitId, event) {{
+            if (event) event.stopPropagation();
+            const currentState = commitStates[commitId] || 'unreviewed';
+            let newState = 'ok';
+            if (currentState === 'unreviewed') newState = 'ok';
+            else if (currentState === 'ok') newState = 'bad';
+            else if (currentState === 'bad') newState = 'unreviewed';
+            
+            if (newState === 'unreviewed') {{
+                delete commitStates[commitId];
+            }} else {{
+                commitStates[commitId] = newState;
+            }}
+            localStorage.setItem('commitStates', JSON.stringify(commitStates));
+            
+            const icon = newState === 'ok' ? '✅' : (newState === 'bad' ? '❌' : '');
+            document.querySelectorAll(`td.state-cell[data-commit-id="${{commitId}}"]`).forEach(el => {{
+                el.innerText = icon;
+                el.title = newState;
+            }});
+        }}
 
         function markVisited(commitId, dsName) {{
             const key = `${{commitId}}-${{dsName}}`;
@@ -655,6 +678,7 @@ def main():
             const pageItems = filteredData.slice(start, end);
 
             let html = '<table><thead><tr>';
+            html += '<th rowspan="2" style="width: 50px;">State</th>';
             html += '<th rowspan="2">Subject</th>';
             html += '<th rowspan="2">Commit ID</th>';
             html += '<th rowspan="2">kernel-source</th>';
@@ -668,7 +692,13 @@ def main():
             html += '</tr></thead><tbody>';
 
             pageItems.forEach((item, idx) => {{
+                const stateStr = commitStates[item.id] || 'unreviewed';
+                let stateIcon = '';
+                if (stateStr === 'ok') stateIcon = '✅';
+                else if (stateStr === 'bad') stateIcon = '❌';
+
                 html += '<tr>';
+                html += `<td class="state-cell" data-commit-id="${{item.id}}" title="${{stateStr}}" style="cursor: pointer; text-align: center; user-select: none;" onclick="toggleCommitState('${{item.id}}', event)">${{stateIcon}}</td>`;
                 html += `<td class="subject-cell" title="${{escapeHtml(item.subject)}}">${{item.subject}}</td>`;
                 html += `<td><a href="${{commitBaseUrl}}${{item.id}}" target="_blank">${{item.id.substring(0, 12)}}</a></td>`;
 
