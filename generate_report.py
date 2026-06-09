@@ -414,6 +414,8 @@ def main():
         <input type="text" id="subjectSearch" oninput="applyFilter()" placeholder="Search..." style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border); padding: 4px;">
     </div>
 
+    <div id="modelToggleContainer" class="filter-container"></div>
+
     <div class="controls-container">
         <div id="paginationContainerTop" class="pagination"></div>
         
@@ -503,6 +505,7 @@ def main():
     <script>
         let data = [];
         let datasets = [];
+        let visibleDatasets = [];
         let rowsPerPage = {rows_per_page};
         let useKernCVS = {use_kerncvs};
         let commitBaseUrl = "";
@@ -531,7 +534,10 @@ def main():
             const text = await new Response(stream).text();
             data = JSON.parse(text);
             datasets = {datasets_list};
+            visibleDatasets = [...datasets];
             filteredData = data;
+
+            renderModelToggles();
 
             commitBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=" : "https://github.com/SUSE/kernel/commit/";
             ksBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=" : "https://github.com/SUSE/kernel-source/commit/";
@@ -573,6 +579,32 @@ def main():
             setTheme(document.documentElement.getAttribute('data-theme') || savedTheme);
 
             applyFilter();
+        }}
+
+        function renderModelToggles() {{
+            const container = document.getElementById('modelToggleContainer');
+            if (!container) return;
+            let html = '<label style="margin-right: 10px; font-weight: bold;">Models:</label>';
+            datasets.forEach(ds => {{
+                const checked = visibleDatasets.includes(ds) ? 'checked' : '';
+                html += `<label style="margin-right: 15px; cursor: pointer;">
+                            <input type="checkbox" value="${{ds}}" ${{checked}} onchange="toggleModel(this.value, this.checked)" style="vertical-align: middle; margin-right: 4px;">
+                            ${{ds}}
+                         </label>`;
+            }});
+            container.innerHTML = html;
+        }}
+
+        function toggleModel(ds, isVisible) {{
+            if (isVisible) {{
+                if (!visibleDatasets.includes(ds)) {{
+                    visibleDatasets.push(ds);
+                    visibleDatasets.sort((a, b) => datasets.indexOf(a) - datasets.indexOf(b));
+                }}
+            }} else {{
+                visibleDatasets = visibleDatasets.filter(d => d !== ds);
+            }}
+            renderTable();
         }}
 
         function setTheme(theme) {{
@@ -626,11 +658,11 @@ def main():
             html += '<th rowspan="2">Subject</th>';
             html += '<th rowspan="2">Commit ID</th>';
             html += '<th rowspan="2">kernel-source</th>';
-            datasets.forEach(name => {{
+            visibleDatasets.forEach(name => {{
                 html += `<th colspan="3" class="dataset-header">${{name}}</th>`;
             }});
             html += '</tr><tr>';
-            datasets.forEach(() => {{
+            visibleDatasets.forEach(() => {{
                 html += '<th>Issues</th><th>Severity</th><th>Review Time</th>';
             }});
             html += '</tr></thead><tbody>';
@@ -651,7 +683,7 @@ def main():
                 }}
                 html += `<td>${{ksId ? `<a href="${{ksBaseUrl}}${{ksId}}" target="_blank">${{ksId.substring(0, 12)}}</a>` : ""}}</td>`;
 
-                datasets.forEach(dsName => {{
+                visibleDatasets.forEach(dsName => {{
                     const review = item.reviews[dsName];
                     if (review && review.metadata) {{
                         const metadata = review.metadata;
