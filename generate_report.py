@@ -307,6 +307,7 @@ def main():
         th {{ background-color: var(--header-bg); }}
         .dataset-header {{ background-color: var(--dataset-header-bg); text-align: center; font-weight: bold; }}
         .issues-cell {{ cursor: pointer; color: var(--link-color); text-decoration: underline; }}
+        .visited {{ opacity: 0.6; }}
         .has-pre-verification {{ background-color: var(--pre-verification-bg) !important; }}
         .has-downstream {{ background-color: var(--downstream-highlight-bg) !important; }}
         a {{ color: var(--link-color); }}
@@ -509,6 +510,16 @@ def main():
         let currentPage = 1;
         let filteredData = [];
         let activeReview = null;
+        let visitedReviews = new Set(JSON.parse(localStorage.getItem('visitedReviews') || '[]'));
+
+        function markVisited(commitId, dsName) {{
+            const key = `${{commitId}}-${{dsName}}`;
+            if (!visitedReviews.has(key)) {{
+                visitedReviews.add(key);
+                localStorage.setItem('visitedReviews', JSON.stringify([...visitedReviews]));
+                document.querySelectorAll(`td[data-review-id="${{key}}"]`).forEach(el => el.classList.add('visited'));
+            }}
+        }}
 
         async function init() {{
             const compressed = "{compressed_json}";
@@ -649,6 +660,8 @@ def main():
                         const severity = (metadata['issue-severity-score'] || "none").toLowerCase();
                         const severityClass = `severity-${{severity}}`;
                         const clickAction = `onclick="openReview('${{item.id}}', '${{dsName}}')"`;
+                        const reviewKey = `${{item.id}}-${{dsName}}`;
+                        const visitedClass = visitedReviews.has(reviewKey) ? " visited" : "";
                         
                         let issuesText = `${{metadata['issues-found']}}${{hasPre}}`;
                         let dsClass = "";
@@ -659,8 +672,8 @@ def main():
                             }}
                         }}
 
-                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}}" ${{clickAction}}>${{issuesText}}</td>`;
-                        html += `<td class="${{severityClass}} issues-cell" ${{clickAction}}>${{metadata['issue-severity-score']}}</td>`;
+                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesText}}</td>`;
+                        html += `<td class="${{severityClass}} issues-cell${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{metadata['issue-severity-score']}}</td>`;
                         html += `<td>${{metadata['review-time-seconds']}}s</td>`;
                     }} else {{
                         html += '<td></td><td></td><td></td>';
@@ -876,6 +889,7 @@ def main():
         }}
 
         function openReview(commitId, dsName) {{
+            markVisited(commitId, dsName);
             const item = data.find(i => i.id === commitId);
             const review = item.reviews[dsName];
             activeReview = {{ commitId, dsName, item, review }};
