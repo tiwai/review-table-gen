@@ -12,8 +12,9 @@ install:
 
 test:
 	./generate_report.py --list test/list-test \
-		--dataset gemma-4 test/data/gemma-4 \
-		--dataset qwen3.6-q4 test/data/qwen3.6-q4 \
+		--dataset kreviews \
+		--model gemma-4 \
+		--model qwen3.6 \
 		--title "SLE12-SP5 Potential Regressions" --output test-report.html
 
 clean:

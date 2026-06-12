@@ -99,21 +99,34 @@ def get_review_data(dataset, full_id):
             
     return data if data else None
 
+def get_git_tree_path(root_tree, path):
+    """Retrieve a Tree or Blob from a Git Tree object by slash-separated path."""
+    current = root_tree
+    for part in path.split("/"):
+        if not part:
+            continue
+        try:
+            current = current[part]
+        except KeyError:
+            return None
+    return current
+
 def main():
     parser = argparse.ArgumentParser(description="Generate kernel review report.")
     parser.add_argument("--list", required=True, help="Commit list file")
-    parser.add_argument("--dataset", action="append", nargs=2, metavar=("NAME", "DIR"), help="Dataset name and directory")
+    
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--dataset", help="Database directory")
+    group.add_argument("--git", help="Git repository for dataset")
+    
+    parser.add_argument("--model", action="append", required=True, help="Model directory name (e.g. gpt-oss)")
+    parser.add_argument("--git-commit", default="HEAD", help="Git commit ID to read from (default: HEAD)")
     parser.add_argument("--title", default="Potential Regressions", help="Report title")
-    parser.add_argument("--git", help="Git repository for dataset")
     parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
     parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
     parser.add_argument("--output", default="report.html", help="Output HTML file")
     
     args = parser.parse_args()
-    
-    if not args.dataset:
-        print("Error: At least one dataset must be provided.")
-        sys.exit(1)
 
     # 1. Parse commit list
     commits = []
@@ -131,6 +144,7 @@ def main():
     authors = set()
     
     repo = None
+    commit_tree = None
     if args.git:
         import git
         try:
@@ -138,29 +152,53 @@ def main():
         except Exception as e:
             print(f"Error: Could not open git repository '{args.git}': {e}")
             sys.exit(1)
+        
+        try:
+            git_commit = args.git_commit if args.git_commit else "HEAD"
+            commit_obj = repo.commit(git_commit)
+            commit_tree = commit_obj.tree
+        except Exception as e:
+            print(f"Error: Could not find git commit '{args.git_commit}' in {args.git}: {e}")
+            sys.exit(1)
 
     # Pre-resolve dataset trees/dirs
     dataset_sources = {}
-    for ds_name, ds_src in args.dataset:
+    for model_dir_name in args.model:
         if repo:
-            try:
-                dataset_sources[ds_name] = repo.commit(ds_src).tree
-            except Exception as e:
-                print(f"Error: Could not find git ref '{ds_src}' in {args.git}: {e}")
+            model_tree = get_git_tree_path(commit_tree, model_dir_name)
+            if not model_tree:
+                print(f"Error: Model directory '{model_dir_name}' not found in commit '{args.git_commit}'.")
                 sys.exit(1)
+            
+            desc_blob = get_git_tree_path(commit_tree, f"{model_dir_name}/description")
+            if not desc_blob:
+                print(f"Error: Description file for model '{model_dir_name}' not found in commit '{args.git_commit}'.")
+                sys.exit(1)
+            
+            model_name = desc_blob.data_stream.read().decode('utf-8').strip()
+            dataset_sources[model_name] = model_tree
         else:
-            if not os.path.isdir(ds_src):
-                print(f"Error: Dataset directory '{ds_src}' not found.")
+            model_path = os.path.join(args.dataset, model_dir_name)
+            if not os.path.isdir(model_path):
+                print(f"Error: Model directory '{model_path}' not found.")
                 sys.exit(1)
-            dataset_sources[ds_name] = ds_src
+            
+            desc_path = os.path.join(model_path, "description")
+            if not os.path.isfile(desc_path):
+                print(f"Error: Description file '{desc_path}' not found.")
+                sys.exit(1)
+                
+            with open(desc_path, "r", encoding="utf-8") as f:
+                model_name = f.read().strip()
+            
+            dataset_sources[model_name] = model_path
 
     for commit in commits:
         commit_reviews = {}
         has_any_review = False
         commit_full_id = None
         
-        for ds_name, ds_src in args.dataset:
-            source = dataset_sources[ds_name]
+        for model_name, source in dataset_sources.items():
             # Try to resolve full ID if not already done
             if not commit_full_id:
                 commit_full_id = resolve_full_id(source, commit["id"])
@@ -168,7 +206,7 @@ def main():
             if commit_full_id:
                 data = get_review_data(source, commit_full_id)
                 if data:
-                    commit_reviews[ds_name] = data
+                    commit_reviews[model_name] = data
                     has_any_review = True
                     if "metadata" in data and "author" in data["metadata"]:
                         authors.add(data["metadata"]["author"])
@@ -1100,7 +1138,7 @@ def main():
 
     author_options = "".join([f'<option value="{html.escape(a)}">{html.escape(a)}</option>' for a in sorted(authors)])
     
-    datasets_list = [d[0] for d in args.dataset]
+    datasets_list = list(dataset_sources.keys())
     
     json_data = json.dumps(processed_data, separators=(',', ':'))
     compressed_data = base64.b64encode(zlib.compress(json_data.encode('utf-8'))).decode('ascii')
