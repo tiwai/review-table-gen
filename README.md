@@ -46,13 +46,30 @@ pip install -r requirements.txt
 
 ## Usage
 
+Using direct file system access:
+
 ```bash
 python3 generate_report.py \
     --list <COMMIT_LIST_FILE> \
-    --dataset "<DATASET_NAME>" <DATASET_DIR_OR_REF> \
-    [--dataset "<DATASET_NAME_2>" <DATASET_DIR_OR_REF_2> ...] \
+    --dataset <DATABASE_DIR> \
+    --model <MODEL_DIR_NAME> \
+    [--model <MODEL_DIR_NAME_2> ...] \
     --title "<REPORT_TITLE>" \
-    [--git <GIT_REPO_PATH>] \
+    [--rows <ROWS_PER_PAGE>] \
+    [--kerncvs] \
+    [--output <OUTPUT_FILE>]
+```
+
+Using git repository tree access:
+
+```bash
+python3 generate_report.py \
+    --list <COMMIT_LIST_FILE> \
+    --git <GIT_REPO_PATH> \
+    [--git-commit <COMMIT_ID>] \
+    --model <MODEL_DIR_NAME> \
+    [--model <MODEL_DIR_NAME_2> ...] \
+    --title "<REPORT_TITLE>" \
     [--rows <ROWS_PER_PAGE>] \
     [--kerncvs] \
     [--output <OUTPUT_FILE>]
@@ -72,9 +89,11 @@ These parameters take precedence over stored preferences and script defaults.
 ### Arguments
 
 - `--list`: Path to the commit list file (format: `sha subject`).
-- `--dataset`: A pair of dataset name and directory. If `--git` is provided, the second argument is treated as a git refspec (branch, tag, or commit ID) within that repository. Can be used multiple times.
-- `--branch`: The branch name (used in the report title).
-- `--git`: Optional path to a git repository containing the review datasets.
+- `--dataset`: Path to the database directory containing model subdirectories. Exclusive with `--git`.
+- `--git`: Path to the git repository containing model subdirectories directly at its root commit tree. Exclusive with `--dataset`.
+- `--model`: The subdirectory name of the model to include (e.g., `gpt-oss`, `gemma-4`). Can be used multiple times.
+- `--git-commit`: The git commit ID, branch, or tag to read from when `--git` is provided (default: `HEAD`).
+- `--title`: The report title.
 - `--rows`: Number of rows per page (default: 50).
 - `--kerncvs`: If set, use `kerncvs.suse.de` links instead of GitHub.
 - `--output`: Path to the output HTML file (default: `report.html`).
