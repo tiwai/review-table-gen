@@ -8,6 +8,7 @@ A Python-based tool to generate a single, standalone static HTML report for Linu
 - **Dynamic Configuration**: Adjust the number of displayed rows (20 to 500) directly from the UI.
 - **Color Themes**: Support for both Light and Dark modes, with a dynamic switcher at the bottom. The theme preference is saved in the browser.
 - **Author Filtering**: Quickly filter results by the author of the review.
+- **Branch Switching**: Dropdown switcher to jump directly to other branch report pages, configured via a JSON config file.
 - **Rich Visualization**:
     - **Inline Reviews**: Pretty-formatted metadata (Author, Commits, Subjects) and diffs with syntax highlighting and Markdown support.
     - **Fix Patches**: If a `review-fix-patches.diff` is provided and issues are found, a "Fix Patch" button appears to show suggested fixes in a pretty diff format.
@@ -96,6 +97,7 @@ These parameters take precedence over stored preferences and script defaults.
 - `--title`: The report title.
 - `--rows`: Number of rows per page (default: 50).
 - `--kerncvs`: If set, use `kerncvs.suse.de` links instead of GitHub.
+- `--links-file`: Path to a JSON configuration file containing branch to URL mappings for the branch switcher (e.g., `test/branches.json`).
 - `--output`: Path to the output HTML file (default: `report.html`).
 
 ## Dataset Structure

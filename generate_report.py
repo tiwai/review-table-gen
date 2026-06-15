@@ -124,9 +124,23 @@ def main():
     parser.add_argument("--title", default="Potential Regressions", help="Report title")
     parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
     parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
+    parser.add_argument("--links-file", help="JSON file containing branch to URL mappings for the branch switcher")
     parser.add_argument("--output", default="report.html", help="Output HTML file")
     
     args = parser.parse_args()
+
+    # Parse branch links if provided
+    branch_links = {}
+    if args.links_file:
+        try:
+            with open(args.links_file, "r", encoding="utf-8") as f:
+                branch_links = json.load(f)
+            if not isinstance(branch_links, dict):
+                print(f"Error: Links file '{args.links_file}' must be a JSON object mapping names to URLs.")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: Could not read links file '{args.links_file}': {e}")
+            sys.exit(1)
 
     # 1. Parse commit list
     commits = []
@@ -450,6 +464,8 @@ def main():
 
         <label for="subjectSearch" style="margin-left: 20px;">Search Subject:</label>
         <input type="text" id="subjectSearch" oninput="applyFilter()" placeholder="Search..." style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border); padding: 4px;">
+
+        {branch_switcher_html}
     </div>
 
     <div id="modelToggleContainer" class="filter-container"></div>
@@ -1138,6 +1154,20 @@ def main():
 
     author_options = "".join([f'<option value="{html.escape(a)}">{html.escape(a)}</option>' for a in sorted(authors)])
     
+    branch_switcher_html = ""
+    if branch_links:
+        options_html = '<option value="" disabled selected style="display:none;">Switch Branch...</option>'
+        for name, url in branch_links.items():
+            options_html += f'<option value="{html.escape(url)}">{html.escape(name)}</option>'
+        branch_switcher_html = f"""
+        <span class="branch-switcher" style="margin-left: 20px;">
+            <label for="branchSelect">Branch:</label>
+            <select id="branchSelect" onchange="if(this.value) window.location.href=this.value;" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border); padding: 4px;">
+                {options_html}
+            </select>
+        </span>
+        """
+
     datasets_list = list(dataset_sources.keys())
     
     json_data = json.dumps(processed_data, separators=(',', ':'))
@@ -1146,6 +1176,7 @@ def main():
     full_html = html_template.format(
         title=html.escape(args.title),
         author_options=author_options,
+        branch_switcher_html=branch_switcher_html,
         compressed_json=compressed_data,
         datasets_list=json.dumps(datasets_list),
         rows_per_page=args.rows,

@@ -15,6 +15,7 @@ test:
 		--dataset kreviews \
 		--model gemma-4 \
 		--model qwen3.6 \
+		--links-file test/branches.json \
 		--title "SLE12-SP5 Potential Regressions" --output test-report.html
 
 clean:
