@@ -661,6 +661,28 @@ def main():
             }});
         }}
 
+        function toggleCommitDiff() {{
+            const container = document.getElementById('commitDiffContainer');
+            const arrow = document.getElementById('commitDiffArrow');
+            if (!container) return;
+            if (container.style.display === 'none') {{
+                container.style.display = 'block';
+                if (arrow) arrow.innerText = '▼';
+                const inlineView = document.getElementById('inlineView');
+                if (inlineView) {{
+                    setTimeout(() => {{
+                        inlineView.scrollTo({{
+                            top: inlineView.scrollHeight,
+                            behavior: 'smooth'
+                        }});
+                    }}, 50);
+                }}
+            }} else {{
+                container.style.display = 'none';
+                if (arrow) arrow.innerText = '▶';
+            }}
+        }}
+
         function markVisited(commitId, dsName) {{
             const key = `${{commitId}}-${{dsName}}`;
             if (!visitedReviews.has(key)) {{
@@ -1219,19 +1241,35 @@ def main():
             let contentHtml = "";
             if (review.inline) {{
                 if (review.inline_is_json) {{
-                    contentHtml = renderInlineJson(review.inline, review.diff);
+                    contentHtml = renderInlineJson(review.inline, null);
                 }} else {{
                     contentHtml = formatInline(review.inline);
                 }}
             }} else {{
                 contentHtml = "No inline review content.";
             }}
+
+            let diffHtml = "";
+            if (review.diff) {{
+                diffHtml = `
+                    <div style="margin-top: 15px; margin-bottom: 5px;">
+                        <strong onclick="toggleCommitDiff()" style="cursor: pointer; color: var(--link-color); user-select: none;">
+                            <span id="commitDiffArrow">▶</span> Commit Diff
+                        </strong>
+                    </div>
+                    <div id="commitDiffContainer" style="display: none; max-height: 400px; overflow-y: auto; border: 1px solid var(--table-border); padding: 10px; background: var(--code-block-bg); border-radius: 4px;">
+                        ${{formatInline(review.diff)}}
+                    </div>
+                `;
+            }}
+
             body.innerHTML = `
                 <div style="margin-bottom: 10px; font-weight: bold; border-bottom: 1px solid var(--table-border); padding-bottom: 10px;">
                     Subject: ${{escapeHtml(item.subject)}}
                 </div>
                 <div id="inlineView" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;">
                     ${{contentHtml}}
+                    ${{diffHtml}}
                 </div>
             `;
 
