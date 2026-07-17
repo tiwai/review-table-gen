@@ -77,17 +77,30 @@ def get_review_data(dataset, full_id):
     if metadata_content:
         data["metadata"] = json.loads(metadata_content)
     
+    inline_json = get_blob_content("review-inline.json")
     inline_text = get_blob_content("review-inline.txt")
+    
+    downstream_only = None
     if inline_text:
-        data["inline"] = inline_text
         # Parse downstream-only findings
         for line in inline_text.splitlines():
             if line.startswith("Findings-downstream-only:"):
                 try:
-                    data["downstream_only"] = int(line.split(":")[1].strip())
+                    downstream_only = int(line.split(":")[1].strip())
                 except:
                     pass
                 break
+
+    if inline_json:
+        data["inline"] = inline_json
+        data["inline_is_json"] = True
+        if downstream_only is not None:
+            data["downstream_only"] = downstream_only
+    elif inline_text:
+        data["inline"] = inline_text
+        data["inline_is_json"] = False
+        if downstream_only is not None:
+            data["downstream_only"] = downstream_only
             
     pre_verification_content = get_blob_content("review-pre-verification.json")
     if pre_verification_content:
@@ -111,6 +124,15 @@ def get_git_tree_path(root_tree, path):
             return None
     return current
 
+def get_commit_diff(target_repo, commit_id):
+    """Extract the diff for a given commit from the target Git repository."""
+    try:
+        # Get only the patch/diff of the commit, excluding the commit message
+        diff_text = target_repo.git.show(commit_id, format="", no_color=True)
+        return diff_text.strip()
+    except Exception as e:
+        return None
+
 def main():
     parser = argparse.ArgumentParser(description="Generate kernel review report.")
     parser.add_argument("--list", required=True, help="Commit list file")
@@ -125,6 +147,7 @@ def main():
     parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
     parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
     parser.add_argument("--links-file", help="JSON file containing branch to URL mappings for the branch switcher")
+    parser.add_argument("--target-git", help="Git repository for the target code")
     parser.add_argument("--output", default="report.html", help="Output HTML file")
     
     args = parser.parse_args()
@@ -207,10 +230,20 @@ def main():
             
             dataset_sources[model_name] = model_path
 
+    target_repo = None
+    if args.target_git:
+        import git
+        try:
+            target_repo = git.Repo(args.target_git)
+        except Exception as e:
+            print(f"Error: Could not open target git repository '{args.target_git}': {e}")
+            sys.exit(1)
+
     for commit in commits:
         commit_reviews = {}
         has_any_review = False
         commit_full_id = None
+        commit_diff = None
         
         for model_name, source in dataset_sources.items():
             # Try to resolve full ID if not already done
@@ -220,6 +253,11 @@ def main():
             if commit_full_id:
                 data = get_review_data(source, commit_full_id)
                 if data:
+                    if target_repo:
+                        if commit_diff is None:
+                            commit_diff = get_commit_diff(target_repo, commit_full_id) or ""
+                        if commit_diff:
+                            data["diff"] = commit_diff
                     commit_reviews[model_name] = data
                     has_any_review = True
                     if "metadata" in data and "author" in data["metadata"]:
@@ -1032,6 +1070,107 @@ def main():
             return text.toString().replace(/[&<>"']/g, function(m) {{ return map[m]; }});
         }}
 
+        function renderInlineJson(jsonStr, diffText) {{
+            try {{
+                const data = JSON.parse(jsonStr);
+                let html = '<div class="inline-json-content">';
+                
+                // Metadata block
+                html += '<div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--table-border); line-height: 1.5;">';
+                if (data.commit) {{
+                    html += `<div><span class="review-metadata">commit <a href="${{commitBaseUrl}}${{data.commit}}" target="_blank" class="review-link">${{escapeHtml(data.commit)}}</a></span></div>`;
+                }}
+                if (data.author) {{
+                    html += `<div><span class="review-metadata">Author: ${{escapeHtml(data.author)}}</span></div>`;
+                }}
+                if (data.subject) {{
+                    html += `<div style="margin-top: 5px;"><span class="review-subject">${{escapeHtml(data.subject)}}</span></div>`;
+                }}
+                if (data['distro-commit']) {{
+                    html += `<div><span class="review-metadata">distro-commit: <a href="${{ksBaseUrl}}${{data['distro-commit']}}" target="_blank" class="review-link">${{escapeHtml(data['distro-commit'])}}</a></span></div>`;
+                }}
+                if (data['upstream-commit']) {{
+                    html += `<div><span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${{data['upstream-commit']}}" target="_blank" class="review-link">${{escapeHtml(data['upstream-commit'])}}</a></span></div>`;
+                }} else if (data['upstream_commit']) {{
+                    html += `<div><span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${{data['upstream_commit']}}" target="_blank" class="review-link">${{escapeHtml(data['upstream_commit'])}}</a></span></div>`;
+                }}
+                
+                // Backport info
+                if (data.backport) {{
+                    const bp = data.backport;
+                    html += '<div style="margin-top: 10px; padding: 8px; background: var(--table-bg); border: 1px solid var(--table-border); border-radius: 4px;">';
+                    html += `<strong>Backport Info:</strong><br>`;
+                    if (bp.upstream) {{
+                        html += `Upstream: <a href="https://github.com/torvalds/linux/commit/${{bp.upstream}}" target="_blank" class="review-link">${{escapeHtml(bp.upstream)}}</a><br>`;
+                    }}
+                    if (bp.status) {{
+                        html += `Status: ${{escapeHtml(bp.status)}}<br>`;
+                    }}
+                    if (bp.summary) {{
+                        html += `Summary: ${{escapeHtml(bp.summary)}}`;
+                    }}
+                    html += '</div>';
+                }}
+                
+                // Summary block
+                if (data.summary) {{
+                    html += `<div style="margin-top: 10px; font-style: italic;">${{formatMarkdown(data.summary, false)}}</div>`;
+                }}
+                
+                // Review system stats
+                html += '<div style="margin-top: 10px; font-size: 0.9em; opacity: 0.7;">';
+                if (data['review-time-seconds']) {{
+                    html += `Review-time: ${{escapeHtml(data['review-time-seconds'])}} seconds<br>`;
+                }}
+                if (data.model) {{
+                    html += `Review-model: ${{escapeHtml(data.model)}}<br>`;
+                }}
+                if (data['input-tokens']) {{
+                    html += `Input-tokens: ${{escapeHtml(data['input-tokens'])}}<br>`;
+                }}
+                if (data['output-tokens']) {{
+                    html += `Output-tokens: ${{escapeHtml(data['output-tokens'])}}<br>`;
+                }}
+                if (data['total-tokens']) {{
+                    html += `Total-tokens: ${{escapeHtml(data['total-tokens'])}}<br>`;
+                }}
+                html += '</div>';
+                html += '</div>'; // End metadata block
+
+                // Diff block
+                if (diffText) {{
+                    html += '<div style="margin-top: 15px; margin-bottom: 5px;"><strong>Commit Diff:</strong></div>';
+                    html += `<div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--table-border); padding: 10px; background: var(--code-block-bg); border-radius: 4px;">`;
+                    html += formatInline(diffText);
+                    html += '</div>';
+                }}
+
+                // Findings
+                if (data.findings && Array.isArray(data.findings) && data.findings.length > 0) {{
+                    html += '<div style="margin-top: 15px;"><strong>Findings:</strong></div>';
+                    data.findings.forEach((f, idx) => {{
+                        const sevClass = f.severity ? `finding-${{f.severity.toLowerCase()}}` : "";
+                        html += `<div class="finding-item ${{sevClass}}" style="margin-top: 10px;">`;
+                        html += `<div class="finding-category">[Finding ${{idx + 1}}] - ${{escapeHtml(f.category || "General")}} - ${{escapeHtml(f.type || "Issue")}}</div>`;
+                        html += `<div><span class="finding-label">Severity:</span> ${{escapeHtml(f.severity || "N/A")}}</div>`;
+                        html += `<div><span class="finding-label">Confidence:</span> ${{escapeHtml(f.confidence || "N/A")}}</div>`;
+                        html += `<div style="margin-top:5px;"><strong>Message:</strong></div>`;
+                        html += `<div class="finding-message">${{formatMarkdown(f.message || "", false)}}</div>`;
+                        if (f.evidence) {{
+                            html += `<div style="margin-top:5px;"><strong>Evidence:</strong></div>`;
+                            html += `<div style="background: var(--code-block-bg); border: 1px solid var(--code-block-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin: 10px 0; overflow-x: auto; font-family: monospace; color: var(--text-color);">${{escapeHtml(f.evidence)}}</div>`;
+                        }}
+                        html += '</div>';
+                    }});
+                }}
+                
+                html += '</div>';
+                return html;
+            }} catch (e) {{
+                return `<pre>${{escapeHtml(jsonStr)}}</pre>`;
+            }}
+        }}
+
         function openReview(commitId, dsName) {{
             markVisited(commitId, dsName);
             const item = data.find(i => i.id === commitId);
@@ -1040,12 +1179,22 @@ def main():
 
             document.getElementById('modalTitle').innerText = `${{dsName}} Review - ${{item.id.substring(0, 12)}}`;
             const body = document.getElementById('modalBody');
+            let contentHtml = "";
+            if (review.inline) {{
+                if (review.inline_is_json) {{
+                    contentHtml = renderInlineJson(review.inline, review.diff);
+                }} else {{
+                    contentHtml = formatInline(review.inline);
+                }}
+            }} else {{
+                contentHtml = "No inline review content.";
+            }}
             body.innerHTML = `
                 <div style="margin-bottom: 10px; font-weight: bold; border-bottom: 1px solid var(--table-border); padding-bottom: 10px;">
                     Subject: ${{escapeHtml(item.subject)}}
                 </div>
                 <div id="inlineView" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;">
-                    ${{formatInline(review.inline || "No inline review content.")}}
+                    ${{contentHtml}}
                 </div>
             `;
 
@@ -1103,11 +1252,14 @@ def main():
         function saveContent() {{
             if (!activeReview || !activeReview.review.inline) return;
             const content = activeReview.review.inline;
-            const blob = new Blob([content], {{ type: 'text/plain' }});
+            const isJson = activeReview.review.inline_is_json;
+            const mimeType = isJson ? 'application/json' : 'text/plain';
+            const fileName = isJson ? 'review-inline.json' : 'review-inline.txt';
+            const blob = new Blob([content], {{ type: mimeType }});
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'review-inline.txt';
+            a.download = fileName;
             a.click();
             URL.revokeObjectURL(url);
         }}
