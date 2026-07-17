@@ -10,7 +10,7 @@ A Python-based tool to generate a single, standalone static HTML report for Linu
 - **Author Filtering**: Quickly filter results by the author of the review.
 - **Branch Switching**: Dropdown switcher to jump directly to other branch report pages, configured via a JSON config file.
 - **Rich Visualization**:
-    - **Inline Reviews**: Pretty-formatted metadata (Author, Commits, Subjects) and diffs with syntax highlighting and Markdown support.
+    - **Inline Reviews**: Pretty-formatted metadata (Author, Commits, Subjects) and diffs with syntax highlighting and Markdown support. Supports both plain-text and structured JSON inline review formats with severity/confidence highlighting.
     - **Fix Patches**: If a `review-fix-patches.diff` is provided and issues are found, a "Fix Patch" button appears to show suggested fixes in a pretty diff format.
     - **Automatic Linkification**: Direct links to upstream Linux kernel, downstream kernel, and kernel-source repositories from within the review popup.
     - **Pre-verification Results**: Structured display of findings (Category, Type, Severity, Evidence).
@@ -110,7 +110,8 @@ The tool expects review datasets to follow a git-like object storage format:
 - Each subdirectory contains the full 40-character commit ID as a folder name.
 - Within each folder:
     - `review-metadata.json` (Required)
-    - `review-inline.txt` (Optional, contains diffs/comments)
+    - `review-inline.json` (Optional, contains structured JSON inline review findings, preferred over `review-inline.txt` if present)
+    - `review-inline.txt` (Optional, fallback contains plain-text diffs/comments/findings)
     - `review-pre-verification.json` (Optional, contains structured findings)
     - `review-fix-patches.diff` (Optional, contains suggested fix patches)
 
