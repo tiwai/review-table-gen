@@ -58,6 +58,7 @@ python3 generate_report.py \
     --title "<REPORT_TITLE>" \
     [--rows <ROWS_PER_PAGE>] \
     [--kerncvs] \
+    [--target-git <TARGET_GIT_REPO_PATH>] \
     [--output <OUTPUT_FILE>]
 ```
 
@@ -73,6 +74,7 @@ python3 generate_report.py \
     --title "<REPORT_TITLE>" \
     [--rows <ROWS_PER_PAGE>] \
     [--kerncvs] \
+    [--target-git <TARGET_GIT_REPO_PATH>] \
     [--output <OUTPUT_FILE>]
 ```
 
@@ -98,6 +100,7 @@ These parameters take precedence over stored preferences and script defaults.
 - `--rows`: Number of rows per page (default: 50).
 - `--kerncvs`: If set, use `kerncvs.suse.de` links instead of GitHub.
 - `--links-file`: Path to a JSON configuration file containing branch to URL mappings for the branch switcher (e.g., `test/branches.json`).
+- `--target-git`: Path to the git repository for the target code being reviewed. If provided, the actual diff/patch of each commit will be extracted and embedded into the report.
 - `--output`: Path to the output HTML file (default: `report.html`).
 
 ## Dataset Structure
