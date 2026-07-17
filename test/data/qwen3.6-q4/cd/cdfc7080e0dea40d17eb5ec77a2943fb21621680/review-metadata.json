@@ -7,5 +7,5 @@
   "sha": "cdfc7080e0dea40d17eb5ec77a2943fb21621680",
   "review-time-seconds": 249.69,
   "model": "qwen3.6:q4",
-  "suse-commit": "4d19df50441334a11598b1c97aea3c334d33174f"
+  "distro-commit": "4d19df50441334a11598b1c97aea3c334d33174f"
 }

@@ -785,7 +785,7 @@ def main():
                 let ksId = "";
                 for (let ds of datasets) {{
                     if (item.reviews[ds] && item.reviews[ds].metadata) {{
-                        ksId = item.reviews[ds].metadata['suse-commit'] || "";
+                        ksId = item.reviews[ds].metadata['suse-commit'] || item.reviews[ds].metadata['distro-commit'] || "";
                         break;
                     }}
                 }}
@@ -944,6 +944,10 @@ def main():
                         const id = trimmed.substring(13).trim();
                         return `<span class="review-metadata">suse-commit: <a href="${{ksBaseUrl}}${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
                     }}
+                    if (trimmed.startsWith('distro-commit: ')) {{
+                        const id = trimmed.substring(15).trim();
+                        return `<span class="review-metadata">distro-commit: <a href="${{ksBaseUrl}}${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
+                    }}
                     if (trimmed.startsWith('Git-commit: ')) {{
                         const id = trimmed.substring(12).trim();
                         return `<span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
@@ -971,7 +975,7 @@ def main():
                     if (authorFound && !subjectFound && trimmed !== "") {{
                         const prevLine = idx > 0 ? lines[idx-1].trim() : "";
                         const nextLine = idx < lines.length - 1 ? lines[idx+1].trim() : "";
-                        if (prevLine === "" && (nextLine === "" || nextLine.startsWith('suse-commit:'))) {{
+                        if (prevLine === "" && (nextLine === "" || nextLine.startsWith('suse-commit:') || nextLine.startsWith('distro-commit:'))) {{
                             subjectFound = true;
                             return `<span class="review-subject">${{content}}</span>\\n`;
                         }}
