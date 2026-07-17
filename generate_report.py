@@ -450,6 +450,37 @@ def main():
         .finding-medium {{ border-left-color: #f0ad4e; }}
         .finding-low {{ border-left-color: #5cb85c; }}
 
+        .finding-badge {{
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 13px;
+            font-weight: bold;
+            border-radius: 4px;
+            text-transform: uppercase;
+            margin-left: 5px;
+        }}
+        .finding-badge-high {{
+            background-color: var(--severity-high-bg);
+            color: var(--severity-high-text);
+            border: 1px solid var(--severity-high-text);
+        }}
+        .finding-badge-medium {{
+            background-color: var(--severity-medium-bg);
+            color: var(--severity-medium-text);
+            border: 1px solid var(--severity-medium-text);
+        }}
+        .finding-badge-low {{
+            background-color: var(--severity-low-bg);
+            color: var(--severity-low-text);
+            border: 1px solid var(--severity-low-text);
+        }}
+        .finding-badge-unknown {{
+            background-color: var(--finding-item-bg);
+            color: var(--text-color);
+            border: 1px solid var(--table-border);
+            opacity: 0.8;
+        }}
+
         .inline-content {{ 
             line-height: 1.5; 
             white-space: pre-wrap;
@@ -1044,7 +1075,9 @@ def main():
                         const sevClass = f.severity ? `finding-${{f.severity.toLowerCase()}}` : "";
                         html += `<div class="finding-item ${{sevClass}}">`;
                         html += `<div class="finding-category">${{escapeHtml(f.category || "General")}} - ${{escapeHtml(f.type || "Issue")}}</div>`;
-                        html += `<div><span class="finding-label">Severity:</span> ${{escapeHtml(f.severity || "N/A")}}</div>`;
+                        const sev = (f.severity || "N/A").toLowerCase();
+                        const sevBadgeClass = ["high", "medium", "low"].includes(sev) ? `finding-badge-${{sev}}` : "finding-badge-unknown";
+                        html += `<div><span class="finding-label">Severity:</span> <span class="finding-badge ${{sevBadgeClass}}">${{escapeHtml(f.severity || "N/A")}}</span></div>`;
                         html += `<div><span class="finding-label">Status:</span> ${{escapeHtml(f.upstream_status || "N/A")}}</div>`;
                         html += `<div style="margin-top:5px;"><strong>Message:</strong></div>`;
                         html += `<div class="finding-message">${{formatMarkdown(f.message || "", false)}}</div>`;
@@ -1152,8 +1185,12 @@ def main():
                         const sevClass = f.severity ? `finding-${{f.severity.toLowerCase()}}` : "";
                         html += `<div class="finding-item ${{sevClass}}" style="margin-top: 10px;">`;
                         html += `<div class="finding-category">[Finding ${{idx + 1}}] - ${{escapeHtml(f.category || "General")}} - ${{escapeHtml(f.type || "Issue")}}</div>`;
-                        html += `<div><span class="finding-label">Severity:</span> ${{escapeHtml(f.severity || "N/A")}}</div>`;
-                        html += `<div><span class="finding-label">Confidence:</span> ${{escapeHtml(f.confidence || "N/A")}}</div>`;
+                        const sev = (f.severity || "N/A").toLowerCase();
+                        const conf = (f.confidence || "N/A").toLowerCase();
+                        const sevBadgeClass = ["high", "medium", "low"].includes(sev) ? `finding-badge-${{sev}}` : "finding-badge-unknown";
+                        const confBadgeClass = ["high", "medium", "low"].includes(conf) ? `finding-badge-${{conf}}` : "finding-badge-unknown";
+                        html += `<div><span class="finding-label">Severity:</span> <span class="finding-badge ${{sevBadgeClass}}">${{escapeHtml(f.severity || "N/A")}}</span></div>`;
+                        html += `<div><span class="finding-label">Confidence:</span> <span class="finding-badge ${{confBadgeClass}}">${{escapeHtml(f.confidence || "N/A")}}</span></div>`;
                         html += `<div style="margin-top:5px;"><strong>Message:</strong></div>`;
                         html += `<div class="finding-message">${{formatMarkdown(f.message || "", false)}}</div>`;
                         if (f.evidence) {{
