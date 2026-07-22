@@ -1217,7 +1217,7 @@ def main():
                         html += `<div class="finding-message">${{formatMarkdown(f.message || "", false)}}</div>`;
                         if (f.evidence) {{
                             html += `<div style="margin-top:5px;"><strong>Evidence:</strong></div>`;
-                            html += `<div style="background: var(--code-block-bg); border: 1px solid var(--code-block-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin: 10px 0; overflow-x: auto; font-family: monospace; color: var(--text-color);">${{escapeHtml(f.evidence)}}</div>`;
+                            html += `<div style="background: var(--code-block-bg); border: 1px solid var(--code-block-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin: 10px 0; overflow-x: auto; font-family: monospace; color: var(--text-color); white-space: pre-wrap; word-wrap: break-word; tab-size: 8; -moz-tab-size: 8;">${{escapeHtml(f.evidence)}}</div>`;
                         }}
                         html += '</div>';
                     }});
