@@ -829,7 +829,7 @@ def main():
                 const matchesSeverity = (severityThreshold === "all") ||
                     reviews.some(r => {{
                         if (!r.metadata) return false;
-                        const score = (r.metadata['issue-severity-score'] || "none").toLowerCase();
+                        const score = (r.metadata['issue-severity-score'] || "none").toString().toLowerCase();
                         return (severityMap[score] || 0) >= thresholdValue;
                     }});
 
@@ -888,7 +888,7 @@ def main():
                         const metadata = review.metadata;
                         const hasPre = review.pre_verification ? "*" : "";
                         const preClass = review.pre_verification ? "has-pre-verification" : "";
-                        const severity = (metadata['issue-severity-score'] || "none").toLowerCase();
+                        const severity = (metadata['issue-severity-score'] || "none").toString().toLowerCase();
                         const severityClass = `severity-${{severity}}`;
                         const clickAction = `onclick="openReview('${{item.id}}', '${{dsName}}')"`;
                         const reviewKey = `${{item.id}}-${{dsName}}`;
@@ -1094,10 +1094,10 @@ def main():
                 
                 if (data.findings && Array.isArray(data.findings)) {{
                     data.findings.forEach(f => {{
-                        const sevClass = f.severity ? `finding-${{f.severity.toLowerCase()}}` : "";
+                        const sevClass = f.severity ? `finding-${{f.severity.toString().toLowerCase()}}` : "";
                         html += `<div class="finding-item ${{sevClass}}">`;
                         html += `<div class="finding-category">${{escapeHtml(f.category || "General")}} - ${{escapeHtml(f.type || "Issue")}}</div>`;
-                        const sev = (f.severity || "N/A").toLowerCase();
+                        const sev = (f.severity || "N/A").toString().toLowerCase();
                         const sevBadgeClass = ["high", "medium", "low"].includes(sev) ? `finding-badge-${{sev}}` : "finding-badge-unknown";
                         html += `<div><span class="finding-label">Severity:</span> <span class="finding-badge ${{sevBadgeClass}}">${{escapeHtml(f.severity || "N/A")}}</span></div>`;
                         html += `<div><span class="finding-label">Status:</span> ${{escapeHtml(f.upstream_status || "N/A")}}</div>`;
@@ -1204,11 +1204,11 @@ def main():
                 if (data.findings && Array.isArray(data.findings) && data.findings.length > 0) {{
                     html += '<div style="margin-top: 15px;"><strong>Findings:</strong></div>';
                     data.findings.forEach((f, idx) => {{
-                        const sevClass = f.severity ? `finding-${{f.severity.toLowerCase()}}` : "";
+                        const sevClass = f.severity ? `finding-${{f.severity.toString().toLowerCase()}}` : "";
                         html += `<div class="finding-item ${{sevClass}}" style="margin-top: 10px;">`;
                         html += `<div class="finding-category">[Finding ${{idx + 1}}] - ${{escapeHtml(f.category || "General")}} - ${{escapeHtml(f.type || "Issue")}}</div>`;
-                        const sev = (f.severity || "N/A").toLowerCase();
-                        const conf = (f.confidence || "N/A").toLowerCase();
+                        const sev = (f.severity || "N/A").toString().toLowerCase();
+                        const conf = (f.confidence || "N/A").toString().toLowerCase();
                         const sevBadgeClass = ["high", "medium", "low"].includes(sev) ? `finding-badge-${{sev}}` : "finding-badge-unknown";
                         const confBadgeClass = ["high", "medium", "low"].includes(conf) ? `finding-badge-${{conf}}` : "finding-badge-unknown";
                         html += `<div><span class="finding-label">Severity:</span> <span class="finding-badge ${{sevBadgeClass}}">${{escapeHtml(f.severity || "N/A")}}</span></div>`;
