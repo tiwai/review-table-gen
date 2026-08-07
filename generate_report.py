@@ -149,6 +149,7 @@ def main():
     parser.add_argument("--links-file", help="JSON file containing branch to URL mappings for the branch switcher")
     parser.add_argument("--target-git", help="Git repository for the target code")
     parser.add_argument("--output", default="report.html", help="Output HTML file")
+    parser.add_argument("--show-review-time", action="store_true", help="Show review time column in the table by default")
     
     args = parser.parse_args()
 
@@ -638,6 +639,7 @@ def main():
         let activeReview = null;
         let visitedReviews = new Set(JSON.parse(localStorage.getItem('visitedReviews') || '[]'));
         let commitStates = JSON.parse(localStorage.getItem('commitStates') || '{{}}');
+        let showReviewTime = {show_review_time};
 
         function toggleCommitState(commitId, event) {{
             if (event) event.stopPropagation();
@@ -726,6 +728,17 @@ def main():
                 }}
             }}
 
+            // Initialize review-time visibility from URL or localStorage
+            const urlShowReviewTime = urlParams.get('review_time') || urlParams.get('review-time');
+            if (urlShowReviewTime !== null) {{
+                showReviewTime = (urlShowReviewTime === 'true' || urlShowReviewTime === '1');
+            }} else {{
+                const savedShowReviewTime = localStorage.getItem('showReviewTime');
+                if (savedShowReviewTime !== null) {{
+                    showReviewTime = (savedShowReviewTime === 'true');
+                }}
+            }}
+
             renderModelToggles();
 
             commitBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=" : "https://github.com/SUSE/kernel/commit/";
@@ -779,7 +792,21 @@ def main():
                             ${{ds}}
                          </label>`;
             }});
+
+            const reviewTimeChecked = showReviewTime ? 'checked' : '';
+            html += `<span style="margin-left: 15px; margin-right: 15px; border-left: 1px solid var(--table-border); height: 1.2em; display: inline-block; vertical-align: middle;"></span>`;
+            html += `<label style="cursor: pointer; font-weight: bold;">
+                        <input type="checkbox" id="reviewTimeToggle" ${{reviewTimeChecked}} onchange="toggleReviewTime(this.checked)" style="vertical-align: middle; margin-right: 4px;">
+                        Show Review Time
+                     </label>`;
+
             container.innerHTML = html;
+        }}
+
+        function toggleReviewTime(visible) {{
+            showReviewTime = visible;
+            localStorage.setItem('showReviewTime', showReviewTime);
+            renderTable();
         }}
 
         function toggleModel(ds, isVisible) {{
@@ -851,12 +878,17 @@ def main():
             html += '<th rowspan="2">Subject</th>';
             html += '<th rowspan="2">Commit ID</th>';
             html += '<th rowspan="2">kernel-source</th>';
+            const colSpan = showReviewTime ? 3 : 2;
             visibleDatasets.forEach(name => {{
-                html += `<th colspan="3" class="dataset-header">${{name}}</th>`;
+                html += `<th colspan="${{colSpan}}" class="dataset-header">${{name}}</th>`;
             }});
             html += '</tr><tr>';
             visibleDatasets.forEach(() => {{
-                html += '<th>Issues</th><th>Severity</th><th>Review Time</th>';
+                if (showReviewTime) {{
+                    html += '<th>Issues</th><th>Severity</th><th>Review Time</th>';
+                }} else {{
+                    html += '<th>Issues</th><th>Severity</th>';
+                }}
             }});
             html += '</tr></thead><tbody>';
 
@@ -905,9 +937,15 @@ def main():
 
                         html += `<td class="issues-cell ${{dsClass}} ${{preClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesText}}</td>`;
                         html += `<td class="${{severityClass}} issues-cell${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{metadata['issue-severity-score']}}</td>`;
-                        html += `<td>${{metadata['review-time-seconds']}}s</td>`;
+                        if (showReviewTime) {{
+                            html += `<td>${{metadata['review-time-seconds']}}s</td>`;
+                        }}
                     }} else {{
-                        html += '<td></td><td></td><td></td>';
+                        if (showReviewTime) {{
+                            html += '<td></td><td></td><td></td>';
+                        }} else {{
+                            html += '<td></td><td></td>';
+                        }}
                     }}
                 }});
 
@@ -1411,7 +1449,8 @@ def main():
         compressed_json=compressed_data,
         datasets_list=json.dumps(datasets_list),
         rows_per_page=args.rows,
-        use_kerncvs="true" if args.kerncvs else "false"
+        use_kerncvs="true" if args.kerncvs else "false",
+        show_review_time="true" if args.show_review_time else "false"
     )
 
     with open(args.output, "w") as f:
