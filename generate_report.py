@@ -106,6 +106,10 @@ def get_review_data(dataset, full_id):
     if pre_verification_content:
         data["pre_verification"] = pre_verification_content
 
+    verified_result_content = get_blob_content("verified-result.json")
+    if verified_result_content:
+        data["verified_result"] = verified_result_content
+
     fix_patches_content = get_blob_content("review-fix-patches.diff")
     if fix_patches_content:
         data["fix_patches"] = fix_patches_content
@@ -315,6 +319,15 @@ def main():
             --code-block-border: #e1e4e8;
             --downstream-highlight-bg: #fff5b1;
             --pre-verification-bg: #e8e8e8;
+            --verified-bg: #d1ecf1;
+            --verified-banner-bg: #cce5ff;
+            --verified-border: #004085;
+            --re-verified-confirmed-bg: #f8d7da;
+            --re-verified-confirmed-text: #721c24;
+            --re-verified-rejected-bg: #d4edda;
+            --re-verified-rejected-text: #155724;
+            --re-verified-unknown-bg: #e2e3e5;
+            --re-verified-unknown-text: #383d41;
         }}
 
         [data-theme="dark"] {{
@@ -352,6 +365,15 @@ def main():
             --inline-view-bg: #1a1a1b;
             --downstream-highlight-bg: #443d00;
             --pre-verification-bg: #333333;
+            --verified-bg: #0d2b30;
+            --verified-banner-bg: #0a2440;
+            --verified-border: #79c0ff;
+            --re-verified-confirmed-bg: #4c1a1a;
+            --re-verified-confirmed-text: #ff9999;
+            --re-verified-rejected-bg: #1a4c2a;
+            --re-verified-rejected-text: #99ff99;
+            --re-verified-unknown-bg: #2a2a2a;
+            --re-verified-unknown-text: #aaaaaa;
         }}
 
         [data-theme="psychedelic"] {{
@@ -389,6 +411,15 @@ def main():
             --inline-view-bg: #2d004d;
             --downstream-highlight-bg: #ff00ff;
             --pre-verification-bg: #4d0080;
+            --verified-bg: #004d4d;
+            --verified-banner-bg: #003366;
+            --verified-border: #00ffff;
+            --re-verified-confirmed-bg: #ff0000;
+            --re-verified-confirmed-text: #fff;
+            --re-verified-rejected-bg: #004d00;
+            --re-verified-rejected-text: #00ff00;
+            --re-verified-unknown-bg: #333333;
+            --re-verified-unknown-text: #00ffcc;
         }}
 
         body {{ font-family: sans-serif; margin: 20px; background-color: var(--bg-color); color: var(--text-color); }}
@@ -401,6 +432,13 @@ def main():
         .visited {{ opacity: 0.6; }}
         .has-pre-verification {{ background-color: var(--pre-verification-bg) !important; }}
         .has-downstream {{ background-color: var(--downstream-highlight-bg) !important; }}
+        .has-verified {{ background-color: var(--verified-bg) !important; }}
+        .re-verified-banner {{ background-color: var(--verified-banner-bg); border-left: 4px solid var(--verified-border); padding: 10px; margin-bottom: 15px; border-radius: 4px; }}
+        .re-verified-badge {{ display: inline-block; padding: 2px 8px; font-size: 13px; font-weight: bold; border-radius: 4px; text-transform: uppercase; }}
+        .re-verified-confirmed {{ background-color: var(--re-verified-confirmed-bg); color: var(--re-verified-confirmed-text); }}
+        .re-verified-rejected {{ background-color: var(--re-verified-rejected-bg); color: var(--re-verified-rejected-text); }}
+        .re-verified-pruned {{ background-color: var(--re-verified-rejected-bg); color: var(--re-verified-rejected-text); }}
+        .re-verified-unknown {{ background-color: var(--re-verified-unknown-bg); color: var(--re-verified-unknown-text); }}
         a {{ color: var(--link-color); }}
         .pagination {{ margin: 20px 0; display: flex; gap: 5px; }}
         .pagination button {{ padding: 5px 10px; cursor: pointer; border: 1px solid var(--table-border); background: var(--table-bg); color: var(--text-color); }}
@@ -920,13 +958,15 @@ def main():
                         const metadata = review.metadata;
                         const hasPre = review.pre_verification ? "*" : "";
                         const preClass = review.pre_verification ? "has-pre-verification" : "";
+                        const hasVerified = review.verified_result ? " ✓" : "";
+                        const verifiedClass = review.verified_result ? "has-verified" : "";
                         const severity = (metadata['issue-severity-score'] || "none").toString().toLowerCase();
                         const severityClass = `severity-${{severity}}`;
                         const clickAction = `onclick="openReview('${{item.id}}', '${{dsName}}')"`;
                         const reviewKey = `${{item.id}}-${{dsName}}`;
                         const visitedClass = visitedReviews.has(reviewKey) ? " visited" : "";
-                        
-                        let issuesText = `${{metadata['issues-found']}}${{hasPre}}`;
+
+                        let issuesText = `${{metadata['issues-found']}}${{hasPre}}${{hasVerified}}`;
                         let dsClass = "";
                         if (review.downstream_only) {{
                             issuesText += ` [${{review.downstream_only}}]`;
@@ -935,7 +975,7 @@ def main():
                             }}
                         }}
 
-                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesText}}</td>`;
+                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}} ${{verifiedClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesText}}</td>`;
                         html += `<td class="${{severityClass}} issues-cell${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{metadata['issue-severity-score']}}</td>`;
                         if (showReviewTime) {{
                             html += `<td>${{metadata['review-time-seconds']}}s</td>`;
@@ -1163,10 +1203,31 @@ def main():
             return text.toString().replace(/[&<>"']/g, function(m) {{ return map[m]; }});
         }}
 
-        function renderInlineJson(jsonStr, diffText) {{
+        function renderInlineJson(jsonStr, diffText, verifiedStr) {{
             try {{
                 const data = JSON.parse(jsonStr);
+                let verifiedData = null;
+                if (verifiedStr) {{
+                    try {{ verifiedData = JSON.parse(verifiedStr); }} catch(e) {{}}
+                }}
                 let html = '<div class="inline-json-content">';
+
+                // Re-verification banner
+                if (verifiedData) {{
+                    const verifiedBy = verifiedData['re-verified-by'] || '';
+                    const verifiedDate = verifiedData['re-verified-date'] || '';
+                    const summary = verifiedData['re-verification-summary'] || '';
+                    html += `<div class="re-verified-banner">`;
+                    html += `<div style="font-weight: bold; margin-bottom: 5px;">`;
+                    html += `Re-Verified`;
+                    if (verifiedBy) html += ` by ${{escapeHtml(verifiedBy)}}`;
+                    if (verifiedDate) html += ` &mdash; ${{escapeHtml(verifiedDate)}}`;
+                    html += `</div>`;
+                    if (summary) {{
+                        html += `<div style="font-size: 0.95em;">${{escapeHtml(summary)}}</div>`;
+                    }}
+                    html += `</div>`;
+                }}
                 
                 // Metadata block
                 html += '<div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--table-border); line-height: 1.5;">';
@@ -1242,9 +1303,19 @@ def main():
                 if (data.findings && Array.isArray(data.findings) && data.findings.length > 0) {{
                     html += '<div style="margin-top: 15px;"><strong>Findings:</strong></div>';
                     data.findings.forEach((f, idx) => {{
+                        // Merge re-verification fields from verifiedData if available
+                        const vf = (verifiedData && verifiedData.findings && verifiedData.findings[idx]) || {{}};
+                        const reStatus = (vf['re-verification-status'] || f['re-verification-status'] || '').toLowerCase();
+                        const reComment = vf['re-verification-comment'] || f['re-verification-comment'] || '';
+
                         const sevClass = f.severity ? `finding-${{f.severity.toString().toLowerCase()}}` : "";
                         html += `<div class="finding-item ${{sevClass}}" style="margin-top: 10px;">`;
-                        html += `<div class="finding-category">[Finding ${{idx + 1}}] - ${{escapeHtml(f.category || "General")}} - ${{escapeHtml(f.type || "Issue")}}</div>`;
+                        html += `<div class="finding-category">[Finding ${{idx + 1}}] - ${{escapeHtml(f.category || "General")}} - ${{escapeHtml(f.type || "Issue")}}`;
+                        if (reStatus) {{
+                            const reClass = reStatus === 'confirmed' ? 're-verified-confirmed' : (reStatus === 'rejected' || reStatus === 'pruned') ? `re-verified-${{reStatus}}` : 're-verified-unknown';
+                            html += ` <span class="re-verified-badge ${{reClass}}">${{escapeHtml(reStatus)}}</span>`;
+                        }}
+                        html += `</div>`;
                         const sev = (f.severity || "N/A").toString().toLowerCase();
                         const conf = (f.confidence || "N/A").toString().toLowerCase();
                         const sevBadgeClass = ["high", "medium", "low"].includes(sev) ? `finding-badge-${{sev}}` : "finding-badge-unknown";
@@ -1256,6 +1327,10 @@ def main():
                         if (f.evidence) {{
                             html += `<div style="margin-top:5px;"><strong>Evidence:</strong></div>`;
                             html += `<div style="background: var(--code-block-bg); border: 1px solid var(--code-block-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin: 10px 0; overflow-x: auto; font-family: monospace; color: var(--text-color); white-space: pre-wrap; word-wrap: break-word; tab-size: 8; -moz-tab-size: 8;">${{escapeHtml(f.evidence)}}</div>`;
+                        }}
+                        if (reComment) {{
+                            html += `<div style="margin-top:8px;"><strong>Re-verification comment:</strong></div>`;
+                            html += `<div style="margin-top:4px; padding: 8px; background: var(--verified-banner-bg); border-left: 3px solid var(--verified-border); border-radius: 3px; font-size: 0.95em;">${{escapeHtml(reComment)}}</div>`;
                         }}
                         html += '</div>';
                     }});
@@ -1279,7 +1354,7 @@ def main():
             let contentHtml = "";
             if (review.inline) {{
                 if (review.inline_is_json) {{
-                    contentHtml = renderInlineJson(review.inline, null);
+                    contentHtml = renderInlineJson(review.inline, null, review.verified_result || null);
                 }} else {{
                     contentHtml = formatInline(review.inline);
                 }}
