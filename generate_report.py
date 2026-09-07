@@ -258,15 +258,46 @@ def main():
             if commit_full_id:
                 data = get_review_data(source, commit_full_id)
                 if data:
+                    committer = None
                     if target_repo:
                         if commit_diff is None:
                             commit_diff = get_commit_diff(target_repo, commit_full_id) or ""
                         if commit_diff:
                             data["diff"] = commit_diff
+                        try:
+                            git_commit_obj = target_repo.commit(commit_full_id)
+                            committer_name = git_commit_obj.committer.name
+                            committer_email = git_commit_obj.committer.email
+                            if committer_email:
+                                committer = f"{committer_name} <{committer_email}>"
+                            else:
+                                committer = committer_name
+                        except Exception:
+                            pass
+
+                    if "metadata" not in data and committer:
+                        data["metadata"] = {}
+
+                    if "metadata" in data:
+                        if committer:
+                            data["metadata"]["author"] = committer
+                        if "author" in data["metadata"]:
+                            authors.add(data["metadata"]["author"])
+
+                    if committer and "inline" in data:
+                        if data.get("inline_is_json"):
+                            try:
+                                inline_obj = json.loads(data["inline"])
+                                inline_obj["author"] = committer
+                                data["inline"] = json.dumps(inline_obj)
+                            except Exception:
+                                pass
+                        else:
+                            import re
+                            data["inline"] = re.sub(r'^Author:\s+.*$', f'Author: {committer}', data["inline"], flags=re.MULTILINE)
+
                     commit_reviews[model_name] = data
                     has_any_review = True
-                    if "metadata" in data and "author" in data["metadata"]:
-                        authors.add(data["metadata"]["author"])
         
         if has_any_review:
             processed_data.append({
