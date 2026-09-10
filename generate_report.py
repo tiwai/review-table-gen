@@ -137,185 +137,7 @@ def get_commit_diff(target_repo, commit_id):
     except Exception as e:
         return None
 
-def main():
-    parser = argparse.ArgumentParser(description="Generate kernel review report.")
-    parser.add_argument("--list", required=True, help="Commit list file")
-    
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--dataset", help="Database directory")
-    group.add_argument("--git", help="Git repository for dataset")
-    
-    parser.add_argument("--model", action="append", required=True, help="Model directory name (e.g. gpt-oss)")
-    parser.add_argument("--git-commit", default="HEAD", help="Git commit ID to read from (default: HEAD)")
-    parser.add_argument("--title", default="Potential Regressions", help="Report title")
-    parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
-    parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
-    parser.add_argument("--links-file", help="JSON file containing branch to URL mappings for the branch switcher")
-    parser.add_argument("--target-git", help="Git repository for the target code")
-    parser.add_argument("--output", default="report.html", help="Output HTML file")
-    parser.add_argument("--show-review-time", action="store_true", help="Show review time column in the table by default")
-    
-    args = parser.parse_args()
-
-    # Parse branch links if provided
-    branch_links = {}
-    if args.links_file:
-        try:
-            with open(args.links_file, "r", encoding="utf-8") as f:
-                branch_links = json.load(f)
-            if not isinstance(branch_links, dict):
-                print(f"Error: Links file '{args.links_file}' must be a JSON object mapping names to URLs.")
-                sys.exit(1)
-        except Exception as e:
-            print(f"Error: Could not read links file '{args.links_file}': {e}")
-            sys.exit(1)
-
-    # 1. Parse commit list
-    commits = []
-    with open(args.list, "r") as f:
-        for line in f:
-            parts = line.strip().split(None, 1)
-            if len(parts) < 1:
-                continue
-            commit_id = parts[0]
-            subject = parts[1] if len(parts) > 1 else ""
-            commits.append({"id": commit_id, "subject": subject})
-
-    # 2. Collect review data
-    processed_data = []
-    authors = set()
-    
-    repo = None
-    commit_tree = None
-    if args.git:
-        import git
-        try:
-            repo = git.Repo(args.git)
-        except Exception as e:
-            print(f"Error: Could not open git repository '{args.git}': {e}")
-            sys.exit(1)
-        
-        try:
-            git_commit = args.git_commit if args.git_commit else "HEAD"
-            commit_obj = repo.commit(git_commit)
-            commit_tree = commit_obj.tree
-        except Exception as e:
-            print(f"Error: Could not find git commit '{args.git_commit}' in {args.git}: {e}")
-            sys.exit(1)
-
-    # Pre-resolve dataset trees/dirs
-    dataset_sources = {}
-    for model_dir_name in args.model:
-        if repo:
-            model_tree = get_git_tree_path(commit_tree, model_dir_name)
-            if not model_tree:
-                print(f"Error: Model directory '{model_dir_name}' not found in commit '{args.git_commit}'.")
-                sys.exit(1)
-            
-            desc_blob = get_git_tree_path(commit_tree, f"{model_dir_name}/description")
-            if not desc_blob:
-                print(f"Error: Description file for model '{model_dir_name}' not found in commit '{args.git_commit}'.")
-                sys.exit(1)
-            
-            model_name = desc_blob.data_stream.read().decode('utf-8').strip()
-            dataset_sources[model_name] = model_tree
-        else:
-            model_path = os.path.join(args.dataset, model_dir_name)
-            if not os.path.isdir(model_path):
-                print(f"Error: Model directory '{model_path}' not found.")
-                sys.exit(1)
-            
-            desc_path = os.path.join(model_path, "description")
-            if not os.path.isfile(desc_path):
-                print(f"Error: Description file '{desc_path}' not found.")
-                sys.exit(1)
-                
-            with open(desc_path, "r", encoding="utf-8") as f:
-                model_name = f.read().strip()
-            
-            dataset_sources[model_name] = model_path
-
-    target_repo = None
-    if args.target_git:
-        import git
-        try:
-            target_repo = git.Repo(args.target_git)
-        except Exception as e:
-            print(f"Error: Could not open target git repository '{args.target_git}': {e}")
-            sys.exit(1)
-
-    for commit in commits:
-        commit_reviews = {}
-        has_any_review = False
-        commit_full_id = None
-        commit_diff = None
-        
-        for model_name, source in dataset_sources.items():
-            # Try to resolve full ID if not already done
-            if not commit_full_id:
-                commit_full_id = resolve_full_id(source, commit["id"])
-            
-            if commit_full_id:
-                data = get_review_data(source, commit_full_id)
-                if data:
-                    committer = None
-                    if target_repo:
-                        if commit_diff is None:
-                            commit_diff = get_commit_diff(target_repo, commit_full_id) or ""
-                        if commit_diff:
-                            data["diff"] = commit_diff
-                        try:
-                            git_commit_obj = target_repo.commit(commit_full_id)
-                            committer_name = git_commit_obj.committer.name
-                            committer_email = git_commit_obj.committer.email
-                            if committer_email:
-                                committer = f"{committer_name} <{committer_email}>"
-                            else:
-                                committer = committer_name
-                        except Exception:
-                            pass
-
-                    if "metadata" not in data and committer:
-                        data["metadata"] = {}
-
-                    if "metadata" in data:
-                        if committer:
-                            data["metadata"]["author"] = committer
-                        if "author" in data["metadata"]:
-                            authors.add(data["metadata"]["author"])
-
-                    if committer and "inline" in data:
-                        if data.get("inline_is_json"):
-                            try:
-                                inline_obj = json.loads(data["inline"])
-                                inline_obj["author"] = committer
-                                data["inline"] = json.dumps(inline_obj)
-                            except Exception:
-                                pass
-                        else:
-                            import re
-                            data["inline"] = re.sub(r'^Author:\s+.*$', f'Author: {committer}', data["inline"], flags=re.MULTILINE)
-
-                    commit_reviews[model_name] = data
-                    has_any_review = True
-        
-        if has_any_review:
-            processed_data.append({
-                "id": commit["id"],
-                "full_id": commit_full_id or commit["id"],
-                "subject": commit["subject"],
-                "reviews": commit_reviews
-            })
-
-    # 3. Generate HTML
-    html_template = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>{title}</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Crect%20width='100'%20height='100'%20rx='20'%20fill='%23007bff'/%3E%3Ctext%20x='50%25'%20y='50%25'%20dominant-baseline='central'%20text-anchor='middle'%20fill='white'%20font-size='60'%20font-family='sans-serif'%20font-weight='bold'%3EK%3C/text%3E%3C/svg%3E">
-    <style>
+CSS_STYLES = """
         :root {{
             --bg-color: #f4f4f9;
             --text-color: #333;
@@ -581,6 +403,679 @@ def main():
         .review-metadata {{ color: var(--diff-header-text); font-weight: bold; }}
         .review-subject {{ color: var(--review-subject-text); font-weight: bold; font-size: 1.1em; background-color: var(--review-subject-bg); padding: 5px; border-radius: 3px; display: block; margin: 5px 0; }}
         .review-link {{ text-decoration: underline; color: var(--link-color); }}
+"""
+
+split_html_template = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{title}</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Crect%20width='100'%20height='100'%20rx='20'%20fill='%23007bff'/%3E%3Ctext%20x='50%25'%20y='50%25'%20dominant-baseline='central'%20text-anchor='middle'%20fill='white'%20font-size='60'%20font-family='sans-serif'%20font-weight='bold'%3EK%3C/text%3E%3C/svg%3E">
+    <style>
+{css_styles}
+    </style>
+</head>
+<body>
+    <div class="header-container" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <a href="{back_link}" class="btn" style="text-decoration: none;">&larr; Back to Main Table</a>
+        <div class="theme-switcher">
+            <span>Theme:</span>
+            <select class="themeSelect" onchange="setTheme(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="psychedelic">Psychedelic</option>
+            </select>
+        </div>
+    </div>
+
+    <h1 id="pageTitle">Review</h1>
+
+    <div id="reviewContent"></div>
+
+    <div id="preVerifySection" style="display: none; margin-top: 20px;">
+        <h2>Pre-Verified Issues</h2>
+        <p class="warning">Warning: may contain false-positives</p>
+        <div id="preVerifyBody"></div>
+        <div class="btn-container" style="margin-top: 10px;">
+            <button class="btn" onclick="savePreVerifyContent()">Save Pre-Verification JSON</button>
+        </div>
+    </div>
+
+    <div id="fixPatchSection" style="display: none; margin-top: 20px;">
+        <h2>Fix Patch</h2>
+        <p class="warning">Warning: Patches can be bogus, use only as a reference</p>
+        <div id="fixPatchBody" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;"></div>
+        <div class="btn-container">
+            <button class="btn" onclick="saveFixPatch()">Save Fix Patch</button>
+        </div>
+    </div>
+
+    <div class="btn-container" style="margin-top: 20px; border-top: 1px solid var(--table-border); padding-top: 15px;">
+        <button class="btn" onclick="saveContent()">Save Inline Review</button>
+    </div>
+
+    <script>
+        const reviewData = {review_data_json};
+        let activeReview = null;
+        let commitBaseUrl = "{commit_base_url}";
+        let ksBaseUrl = "{ks_base_url}";
+
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.querySelectorAll('.themeSelect').forEach(s => s.value = theme);
+        }
+
+        function toggleCommitDiff() {
+            const container = document.getElementById('commitDiffContainer');
+            const arrow = document.getElementById('commitDiffArrow');
+            if (!container) return;
+            if (container.style.display === 'none') {
+                container.style.display = 'block';
+                if (arrow) arrow.innerText = '▼';
+            } else {
+                container.style.display = 'none';
+                if (arrow) arrow.innerText = '▶';
+            }
+        }
+
+        function formatMarkdown(text, isInline) {
+            if (!text) return "";
+            
+            // Handle code blocks first
+            let processedText = text;
+            const codeBlocks = [];
+            processedText = processedText.replace(/```(\\w+)?([\\s\\S]*?)```/g, (match, lang, code) => {
+                const id = `__CODE_BLOCK_${codeBlocks.length}__`;
+                codeBlocks.push(`<div style="background: var(--code-block-bg); border: 1px solid var(--code-block-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin: 10px 0; overflow-x: auto; font-family: monospace; color: var(--text-color);">${escapeHtml(code.trim())}</div>`);
+                return id;
+            });
+
+            const lines = processedText.split('\\n');
+            let authorFound = false;
+            let subjectFound = false;
+
+            let formattedLines = lines.map((line, idx) => {
+                if (line.startsWith('__CODE_BLOCK_') && line.endsWith('__')) {
+                    const index = parseInt(line.replace('__CODE_BLOCK_', '').replace('__', ''));
+                    return codeBlocks[index];
+                }
+
+                let cleanLine = line;
+                let prefixHtml = "";
+                if (line.startsWith('> ')) {
+                    prefixHtml = '<span style="color: #888;">&gt; </span>';
+                    cleanLine = line.substring(2);
+                }
+
+                // Handle inline code `...`
+                let content = escapeHtml(cleanLine)
+                    .replace(/`([^`]+)`/g, '<code style="background: var(--table-bg); border: 1px solid var(--table-border); padding: 1px 4px; border-radius: 3px; font-family: monospace; color: var(--diff-removed-text);">$1</code>')
+                    .replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>')
+                    .replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
+                
+                let className = "";
+                if (cleanLine.startsWith('+++') || cleanLine.startsWith('---')) className = "diff-meta";
+                else if (cleanLine.startsWith('+')) className = "diff-added";
+                else if (cleanLine.startsWith('-')) className = "diff-removed";
+                else if (cleanLine.startsWith('@@')) className = "diff-header";
+                else if (cleanLine.startsWith('diff --git') || cleanLine.startsWith('index ')) className = "diff-meta";
+                else if (cleanLine.startsWith('#')) className = "diff-meta";
+
+                if (isInline) {
+                    const trimmed = cleanLine.trim();
+                    if (trimmed.startsWith('commit ')) {
+                        const id = trimmed.substring(7).trim();
+                        if (/^[0-9a-f]{7,}$/.test(id)) {
+                             return `<span class="review-metadata">commit <a href="${commitBaseUrl}${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
+                        }
+                    }
+                    if (trimmed.startsWith('Author: ')) {
+                        authorFound = true;
+                        return `<span class="review-metadata">${content}</span>\\n`;
+                    }
+                    if (trimmed.startsWith('suse-commit: ')) {
+                        const id = trimmed.substring(13).trim();
+                        return `<span class="review-metadata">suse-commit: <a href="${ksBaseUrl}${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
+                    }
+                    if (trimmed.startsWith('distro-commit: ')) {
+                        const id = trimmed.substring(15).trim();
+                        return `<span class="review-metadata">distro-commit: <a href="${ksBaseUrl}${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
+                    }
+                    if (trimmed.startsWith('Git-commit: ')) {
+                        const id = trimmed.substring(12).trim();
+                        return `<span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
+                    }
+                    if (trimmed.startsWith('Verified-against: ')) {
+                        const id = trimmed.substring(18).trim();
+                        return `<span class="review-metadata">Verified-against: <a href="https://github.com/torvalds/linux/commit/${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
+                    }
+                    
+                    const metaPrefixes = [
+                        'Upstream-subject: ',
+                        'Findings-in-upstream: ',
+                        'Findings-downstream-only: ',
+                        'Review-time: ',
+                        'Review-model: ',
+                        'Input-tokens: ',
+                        'Output-tokens: ',
+                        'Total-tokens: '
+                    ];
+                    if (metaPrefixes.some(p => trimmed.startsWith(p))) {
+                        return `<span class="review-metadata">${content}</span>\\n`;
+                    }
+
+                    // Subject detection: after Author: and between blank lines
+                    if (authorFound && !subjectFound && trimmed !== "") {
+                        const prevLine = idx > 0 ? lines[idx-1].trim() : "";
+                        const nextLine = idx < lines.length - 1 ? lines[idx+1].trim() : "";
+                        if (prevLine === "" && (nextLine === "" || nextLine.startsWith('suse-commit:') || nextLine.startsWith('distro-commit:'))) {
+                            subjectFound = true;
+                            return `<span class="review-subject">${content}</span>\\n`;
+                        }
+                    }
+                }
+                
+                if (className) {
+                    return `<span class="${className}">${prefixHtml}${content}</span>\\n`;
+                }
+                
+                return `${prefixHtml}${content}\\n`;
+            });
+
+            return `<div class="inline-content">` + formattedLines.join('') + '</div>';
+        }
+
+        function formatInline(text) {
+            return formatMarkdown(text, true);
+        }
+
+        function renderPreVerification(jsonStr) {
+            try {
+                const data = JSON.parse(jsonStr);
+                let html = '<div class="pre-verification-content">';
+                
+                if (data.findings && Array.isArray(data.findings)) {
+                    data.findings.forEach(f => {
+                        const sevClass = f.severity ? `finding-${f.severity.toString().toLowerCase()}` : "";
+                        html += `<div class="finding-item ${sevClass}">`;
+                        html += `<div class="finding-category">${escapeHtml(f.category || "General")} - ${escapeHtml(f.type || "Issue")}</div>`;
+                        const sev = (f.severity || "N/A").toString().toLowerCase();
+                        const sevBadgeClass = ["high", "medium", "low"].includes(sev) ? `finding-badge-${sev}` : "finding-badge-unknown";
+                        html += `<div><span class="finding-label">Severity:</span> <span class="finding-badge ${sevBadgeClass}">${escapeHtml(f.severity || "N/A")}</span></div>`;
+                        html += `<div><span class="finding-label">Status:</span> ${escapeHtml(f.upstream_status || "N/A")}</div>`;
+                        html += `<div style="margin-top:5px;"><strong>Message:</strong></div>`;
+                        html += `<div class="finding-message">${formatMarkdown(f.message || "", false)}</div>`;
+                        if (f.evidence) {
+                            html += `<div style="margin-top:5px;"><strong>Evidence:</strong></div>`;
+                            html += `<div class="finding-evidence">${formatMarkdown(f.evidence, false)}</div>`;
+                        }
+                        html += '</div>';
+                    });
+                } else {
+                    html += `<pre>${escapeHtml(jsonStr)}</pre>`;
+                }
+                html += '</div>';
+                return html;
+            } catch (e) {
+                return `<pre>${escapeHtml(jsonStr)}</pre>`;
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return "";
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.toString().replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
+        function renderInlineJson(jsonStr, diffText, verifiedStr) {
+            try {
+                const data = JSON.parse(jsonStr);
+                let verifiedData = null;
+                if (verifiedStr) {
+                    try { verifiedData = JSON.parse(verifiedStr); } catch(e) {}
+                }
+                let html = '<div class="inline-json-content">';
+
+                // Re-verification banner
+                if (verifiedData) {
+                    const verifiedBy = verifiedData['re-verified-by'] || '';
+                    const verifiedDate = verifiedData['re-verified-date'] || '';
+                    const summary = verifiedData['re-verification-summary'] || '';
+                    html += `<div class="re-verified-banner">`;
+                    html += `<div style="font-weight: bold; margin-bottom: 5px;">`;
+                    html += `Re-Verified`;
+                    if (verifiedBy) html += ` by ${escapeHtml(verifiedBy)}`;
+                    if (verifiedDate) html += ` &mdash; ${escapeHtml(verifiedDate)}`;
+                    html += `</div>`;
+                    if (summary) {
+                        html += `<div style="font-size: 0.95em;">${escapeHtml(summary)}</div>`;
+                    }
+                    html += `</div>`;
+                }
+                
+                // Metadata block
+                html += '<div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--table-border); line-height: 1.5;">';
+                if (data.commit) {
+                    html += `<div><span class="review-metadata">commit <a href="${commitBaseUrl}${data.commit}" target="_blank" class="review-link">${escapeHtml(data.commit)}</a></span></div>`;
+                }
+                if (data.author) {
+                    html += `<div><span class="review-metadata">Author: ${escapeHtml(data.author)}</span></div>`;
+                }
+                if (data.subject) {
+                    html += `<div style="margin-top: 5px;"><span class="review-subject">${escapeHtml(data.subject)}</span></div>`;
+                }
+                if (data['distro-commit']) {
+                    html += `<div><span class="review-metadata">distro-commit: <a href="${ksBaseUrl}${data['distro-commit']}" target="_blank" class="review-link">${escapeHtml(data['distro-commit'])}</a></span></div>`;
+                }
+                if (data['upstream-commit']) {
+                    html += `<div><span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${data['upstream-commit']}" target="_blank" class="review-link">${escapeHtml(data['upstream-commit'])}</a></span></div>`;
+                } else if (data['upstream_commit']) {
+                    html += `<div><span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${data['upstream_commit']}" target="_blank" class="review-link">${escapeHtml(data['upstream_commit'])}</a></span></div>`;
+                }
+                
+                // Backport info
+                if (data.backport) {
+                    const bp = data.backport;
+                    html += '<div style="margin-top: 10px; padding: 8px; background: var(--table-bg); border: 1px solid var(--table-border); border-radius: 4px;">';
+                    html += `<strong>Backport Info:</strong><br>`;
+                    if (bp.upstream) {
+                        html += `Upstream: <a href="https://github.com/torvalds/linux/commit/${bp.upstream}" target="_blank" class="review-link">${escapeHtml(bp.upstream)}</a><br>`;
+                    }
+                    if (bp.status) {
+                        html += `Status: ${escapeHtml(bp.status)}<br>`;
+                    }
+                    if (bp.summary) {
+                        html += `Summary: ${escapeHtml(bp.summary)}`;
+                    }
+                    html += '</div>';
+                }
+                
+                // Summary block
+                if (data.summary) {
+                    html += `<div style="margin-top: 10px; font-style: italic;">${formatMarkdown(data.summary, false)}</div>`;
+                }
+                
+                // Review system stats
+                html += '<div style="margin-top: 10px; font-size: 0.9em; opacity: 0.7;">';
+                if (data['review-time-seconds']) {
+                    html += `Review-time: ${escapeHtml(data['review-time-seconds'])} seconds<br>`;
+                }
+                if (data.model) {
+                    html += `Review-model: ${escapeHtml(data.model)}<br>`;
+                }
+                if (data['input-tokens']) {
+                    html += `Input-tokens: ${escapeHtml(data['input-tokens'])}<br>`;
+                }
+                if (data['output-tokens']) {
+                    html += `Output-tokens: ${escapeHtml(data['output-tokens'])}<br>`;
+                }
+                if (data['total-tokens']) {
+                    html += `Total-tokens: ${escapeHtml(data['total-tokens'])}<br>`;
+                }
+                html += '</div>';
+                html += '</div>'; // End metadata block
+
+                // Diff block
+                if (diffText) {
+                    html += '<div style="margin-top: 15px; margin-bottom: 5px;"><strong>Commit Diff:</strong></div>';
+                    html += `<div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--table-border); padding: 10px; background: var(--code-block-bg); border-radius: 4px;">`;
+                    html += formatInline(diffText);
+                    html += '</div>';
+                }
+
+                // Findings
+                if (data.findings && Array.isArray(data.findings) && data.findings.length > 0) {
+                    html += '<div style="margin-top: 15px;"><strong>Findings:</strong></div>';
+                    data.findings.forEach((f, idx) => {
+                        // Merge re-verification fields from verifiedData if available
+                        const vf = (verifiedData && verifiedData.findings && verifiedData.findings[idx]) || {};
+                        const reStatus = (vf['re-verification-status'] || f['re-verification-status'] || '').toLowerCase();
+                        const reComment = vf['re-verification-comment'] || f['re-verification-comment'] || '';
+
+                        const sevClass = f.severity ? `finding-${f.severity.toString().toLowerCase()}` : "";
+                        html += `<div class="finding-item ${sevClass}" style="margin-top: 10px;">`;
+                        html += `<div class="finding-category">[Finding ${idx + 1}] - ${escapeHtml(f.category || "General")} - ${escapeHtml(f.type || "Issue")}`;
+                        if (reStatus) {
+                            const reClass = reStatus === 'confirmed' ? 're-verified-confirmed' : (reStatus === 'rejected' || reStatus === 'pruned') ? `re-verified-${reStatus}` : 're-verified-unknown';
+                            html += ` <span class="re-verified-badge ${reClass}">${escapeHtml(reStatus)}</span>`;
+                        }
+                        html += `</div>`;
+                        const sev = (f.severity || "N/A").toString().toLowerCase();
+                        const conf = (f.confidence || "N/A").toString().toLowerCase();
+                        const sevBadgeClass = ["high", "medium", "low"].includes(sev) ? `finding-badge-${sev}` : "finding-badge-unknown";
+                        const confBadgeClass = ["high", "medium", "low"].includes(conf) ? `finding-badge-${conf}` : "finding-badge-unknown";
+                        html += `<div><span class="finding-label">Severity:</span> <span class="finding-badge ${sevBadgeClass}">${escapeHtml(f.severity || "N/A")}</span></div>`;
+                        html += `<div><span class="finding-label">Confidence:</span> <span class="finding-badge ${confBadgeClass}">${escapeHtml(f.confidence || "N/A")}</span></div>`;
+                        html += `<div style="margin-top:5px;"><strong>Message:</strong></div>`;
+                        html += `<div class="finding-message">${formatMarkdown(f.message || "", false)}</div>`;
+                        if (f.evidence) {
+                            html += `<div style="margin-top:5px;"><strong>Evidence:</strong></div>`;
+                            html += `<div style="background: var(--code-block-bg); border: 1px solid var(--code-block-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin: 10px 0; overflow-x: auto; font-family: monospace; color: var(--text-color); white-space: pre-wrap; word-wrap: break-word; tab-size: 8; -moz-tab-size: 8;">${escapeHtml(f.evidence)}</div>`;
+                        }
+                        if (reComment) {
+                            html += `<div style="margin-top:8px;"><strong>Re-verification comment:</strong></div>`;
+                            html += `<div style="margin-top:4px; padding: 8px; background: var(--verified-banner-bg); border-left: 3px solid var(--verified-border); border-radius: 3px; font-size: 0.95em;">${escapeHtml(reComment)}</div>`;
+                        }
+                        html += '</div>';
+                    });
+                }
+                
+                html += '</div>';
+                return html;
+            } catch (e) {
+                return `<pre>${escapeHtml(jsonStr)}</pre>`;
+            }
+        }
+
+        function saveContent() {
+            if (!activeReview || !activeReview.review.inline) return;
+            const content = activeReview.review.inline;
+            const isJson = activeReview.review.inline_is_json;
+            const mimeType = isJson ? 'application/json' : 'text/plain';
+            const fileName = isJson ? 'review-inline.json' : 'review-inline.txt';
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function savePreVerifyContent() {
+            if (!activeReview || !activeReview.review.pre_verification) return;
+            const content = activeReview.review.pre_verification;
+            const blob = new Blob([content], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'review-pre-verification.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function saveFixPatch() {
+            if (!activeReview || !activeReview.review.fix_patches) return;
+            const content = activeReview.review.fix_patches;
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'review-fix-patches.diff';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function init() {
+            // Apply saved theme
+            const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            setTheme(savedTheme);
+
+            const review = reviewData.review;
+            const commitId = reviewData.commit_id;
+            const dsName = reviewData.model_name;
+            const item = { id: commitId, subject: reviewData.subject };
+            activeReview = { commitId, dsName, item, review };
+
+            // Mark as visited in localStorage
+            const reviewKey = `${commitId}-${dsName}`;
+            let visitedReviews = new Set(JSON.parse(localStorage.getItem('visitedReviews') || '[]'));
+            if (!visitedReviews.has(reviewKey)) {
+                visitedReviews.add(reviewKey);
+                localStorage.setItem('visitedReviews', JSON.stringify([...visitedReviews]));
+            }
+
+            const titleEl = document.getElementById('pageTitle');
+            titleEl.innerText = `${dsName} Review - ${commitId.substring(0, 12)}`;
+
+            const body = document.getElementById('reviewContent');
+            let contentHtml = "";
+            if (review.inline) {
+                if (review.inline_is_json) {
+                    contentHtml = renderInlineJson(review.inline, null, review.verified_result || null);
+                } else {
+                    contentHtml = formatInline(review.inline);
+                }
+            } else {
+                contentHtml = "No inline review content.";
+            }
+
+            let diffHtml = "";
+            if (review.diff) {
+                diffHtml = `
+                    <div style="margin-top: 15px; margin-bottom: 5px;">
+                        <strong onclick="toggleCommitDiff()" style="cursor: pointer; color: var(--link-color); user-select: none;">
+                            <span id="commitDiffArrow">▶</span> Commit Diff
+                        </strong>
+                    </div>
+                    <div id="commitDiffContainer" style="display: none; max-height: 400px; overflow-y: auto; border: 1px solid var(--table-border); padding: 10px; background: var(--code-block-bg); border-radius: 4px;">
+                        ${formatInline(review.diff)}
+                    </div>
+                `;
+            }
+
+            body.innerHTML = `
+                <div style="margin-bottom: 10px; font-weight: bold; border-bottom: 1px solid var(--table-border); padding-bottom: 10px;">
+                    Subject: ${escapeHtml(item.subject)}
+                </div>
+                <div id="inlineView" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg);">
+                    ${contentHtml}
+                    ${diffHtml}
+                </div>
+            `;
+
+            // Display Pre-Verified Issues section if available
+            const preContainer = document.getElementById('preVerifySection');
+            if (review.pre_verification) {
+                preContainer.style.display = 'block';
+                const preBody = document.getElementById('preVerifyBody');
+                preBody.innerHTML = renderPreVerification(review.pre_verification);
+            } else {
+                preContainer.style.display = 'none';
+            }
+
+            // Display Fix Patch section if available
+            const fixContainer = document.getElementById('fixPatchSection');
+            if (review.fix_patches && review.metadata && review.metadata['issues-found'] > 0) {
+                fixContainer.style.display = 'block';
+                const fixBody = document.getElementById('fixPatchBody');
+                fixBody.innerHTML = formatMarkdown(review.fix_patches, false);
+            } else {
+                fixContainer.style.display = 'none';
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
+"""
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate kernel review report.")
+    parser.add_argument("--list", required=True, help="Commit list file")
+    
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--dataset", help="Database directory")
+    group.add_argument("--git", help="Git repository for dataset")
+    
+    parser.add_argument("--model", action="append", required=True, help="Model directory name (e.g. gpt-oss)")
+    parser.add_argument("--git-commit", default="HEAD", help="Git commit ID to read from (default: HEAD)")
+    parser.add_argument("--title", default="Potential Regressions", help="Report title")
+    parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
+    parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
+    parser.add_argument("--links-file", help="JSON file containing branch to URL mappings for the branch switcher")
+    parser.add_argument("--target-git", help="Git repository for the target code")
+    parser.add_argument("--output", default="report.html", help="Output HTML file")
+    parser.add_argument("--show-review-time", action="store_true", help="Show review time column in the table by default")
+    parser.add_argument("--single-page", action="store_true", help="Generate a single static HTML page (old behavior)")
+    
+    args = parser.parse_args()
+
+    # Parse branch links if provided
+    branch_links = {}
+    if args.links_file:
+        try:
+            with open(args.links_file, "r", encoding="utf-8") as f:
+                branch_links = json.load(f)
+            if not isinstance(branch_links, dict):
+                print(f"Error: Links file '{args.links_file}' must be a JSON object mapping names to URLs.")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: Could not read links file '{args.links_file}': {e}")
+            sys.exit(1)
+
+    # 1. Parse commit list
+    commits = []
+    with open(args.list, "r") as f:
+        for line in f:
+            parts = line.strip().split(None, 1)
+            if len(parts) < 1:
+                continue
+            commit_id = parts[0]
+            subject = parts[1] if len(parts) > 1 else ""
+            commits.append({"id": commit_id, "subject": subject})
+
+    # 2. Collect review data
+    processed_data = []
+    authors = set()
+    
+    repo = None
+    commit_tree = None
+    if args.git:
+        import git
+        try:
+            repo = git.Repo(args.git)
+        except Exception as e:
+            print(f"Error: Could not open git repository '{args.git}': {e}")
+            sys.exit(1)
+        
+        try:
+            git_commit = args.git_commit if args.git_commit else "HEAD"
+            commit_obj = repo.commit(git_commit)
+            commit_tree = commit_obj.tree
+        except Exception as e:
+            print(f"Error: Could not find git commit '{args.git_commit}' in {args.git}: {e}")
+            sys.exit(1)
+
+    # Pre-resolve dataset trees/dirs
+    dataset_sources = {}
+    model_name_to_dir = {}
+    for model_dir_name in args.model:
+        if repo:
+            model_tree = get_git_tree_path(commit_tree, model_dir_name)
+            if not model_tree:
+                print(f"Error: Model directory '{model_dir_name}' not found in commit '{args.git_commit}'.")
+                sys.exit(1)
+            
+            desc_blob = get_git_tree_path(commit_tree, f"{model_dir_name}/description")
+            if not desc_blob:
+                print(f"Error: Description file for model '{model_dir_name}' not found in commit '{args.git_commit}'.")
+                sys.exit(1)
+            
+            model_name = desc_blob.data_stream.read().decode('utf-8').strip()
+            dataset_sources[model_name] = model_tree
+            model_name_to_dir[model_name] = model_dir_name
+        else:
+            model_path = os.path.join(args.dataset, model_dir_name)
+            if not os.path.isdir(model_path):
+                print(f"Error: Model directory '{model_path}' not found.")
+                sys.exit(1)
+            
+            desc_path = os.path.join(model_path, "description")
+            if not os.path.isfile(desc_path):
+                print(f"Error: Description file '{desc_path}' not found.")
+                sys.exit(1)
+                
+            with open(desc_path, "r", encoding="utf-8") as f:
+                model_name = f.read().strip()
+            
+            dataset_sources[model_name] = model_path
+            model_name_to_dir[model_name] = model_dir_name
+
+    target_repo = None
+    if args.target_git:
+        import git
+        try:
+            target_repo = git.Repo(args.target_git)
+        except Exception as e:
+            print(f"Error: Could not open target git repository '{args.target_git}': {e}")
+            sys.exit(1)
+
+    for commit in commits:
+        commit_reviews = {}
+        has_any_review = False
+        commit_full_id = None
+        commit_diff = None
+        
+        for model_name, source in dataset_sources.items():
+            # Try to resolve full ID if not already done
+            if not commit_full_id:
+                commit_full_id = resolve_full_id(source, commit["id"])
+            
+            if commit_full_id:
+                data = get_review_data(source, commit_full_id)
+                if data:
+                    committer = None
+                    if target_repo:
+                        if commit_diff is None:
+                            commit_diff = get_commit_diff(target_repo, commit_full_id) or ""
+                        if commit_diff:
+                            data["diff"] = commit_diff
+                        try:
+                            git_commit_obj = target_repo.commit(commit_full_id)
+                            committer_name = git_commit_obj.committer.name
+                            committer_email = git_commit_obj.committer.email
+                            if committer_email:
+                                committer = f"{committer_name} <{committer_email}>"
+                            else:
+                                committer = committer_name
+                        except Exception:
+                            pass
+
+                    if "metadata" not in data and committer:
+                        data["metadata"] = {}
+
+                    if "metadata" in data:
+                        if committer:
+                            data["metadata"]["author"] = committer
+                        if "author" in data["metadata"]:
+                            authors.add(data["metadata"]["author"])
+
+                    if committer and "inline" in data:
+                        if data.get("inline_is_json"):
+                            try:
+                                inline_obj = json.loads(data["inline"])
+                                inline_obj["author"] = committer
+                                data["inline"] = json.dumps(inline_obj)
+                            except Exception:
+                                pass
+                        else:
+                            import re
+                            data["inline"] = re.sub(r'^Author:\s+.*$', f'Author: {committer}', data["inline"], flags=re.MULTILINE)
+
+                    commit_reviews[model_name] = data
+                    has_any_review = True
+        
+        if has_any_review:
+            processed_data.append({
+                "id": commit["id"],
+                "full_id": commit_full_id or commit["id"],
+                "subject": commit["subject"],
+                "reviews": commit_reviews
+            })
+
+    # 3. Generate HTML
+    html_template = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{title}</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Crect%20width='100'%20height='100'%20rx='20'%20fill='%23007bff'/%3E%3Ctext%20x='50%25'%20y='50%25'%20dominant-baseline='central'%20text-anchor='middle'%20fill='white'%20font-size='60'%20font-family='sans-serif'%20font-weight='bold'%3EK%3C/text%3E%3C/svg%3E">
+    <style>
+{css_styles}
     </style>
 </head>
 <body>
@@ -993,7 +1488,6 @@ def main():
                         const verifiedClass = review.verified_result ? "has-verified" : "";
                         const severity = (metadata['issue-severity-score'] || "none").toString().toLowerCase();
                         const severityClass = `severity-${{severity}}`;
-                        const clickAction = `onclick="openReview('${{item.id}}', '${{dsName}}')"`;
                         const reviewKey = `${{item.id}}-${{dsName}}`;
                         const visitedClass = visitedReviews.has(reviewKey) ? " visited" : "";
 
@@ -1006,8 +1500,18 @@ def main():
                             }}
                         }}
 
-                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}} ${{verifiedClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesText}}</td>`;
-                        html += `<td class="${{severityClass}} issues-cell${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{metadata['issue-severity-score']}}</td>`;
+                        let clickAction = `onclick="openReview('${{item.id}}', '${{dsName}}')"`;
+                        let issuesContent = issuesText;
+                        let severityContent = metadata['issue-severity-score'];
+
+                        if (review.url) {{
+                            clickAction = `onclick="markVisited('${{item.id}}', '${{dsName}}')"`;
+                            issuesContent = `<a href="${{review.url}}" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{issuesText}}</a>`;
+                            severityContent = `<a href="${{review.url}}" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{metadata['issue-severity-score']}}</a>`;
+                        }}
+
+                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}} ${{verifiedClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesContent}}</td>`;
+                        html += `<td class="${{severityClass}} issues-cell${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{severityContent}}</td>`;
                         if (showReviewTime) {{
                             html += `<td>${{metadata['review-time-seconds']}}s</td>`;
                         }}
@@ -1545,10 +2049,81 @@ def main():
 
     datasets_list = list(dataset_sources.keys())
     
-    json_data = json.dumps(processed_data, separators=(',', ':'))
+    # Generate split pages if not in single page mode
+    if not args.single_page:
+        output_dir = os.path.dirname(args.output) or "."
+        for item in processed_data:
+            commit_id = item["id"]
+            full_id = item["full_id"]
+            subject = item["subject"]
+            prefix = full_id[:2]
+            
+            for model_name, review in item["reviews"].items():
+                model_dir_name = model_name_to_dir[model_name]
+                split_dir = os.path.join(output_dir, "reviews", model_dir_name, prefix, full_id)
+                os.makedirs(split_dir, exist_ok=True)
+                
+                output_filename = os.path.basename(args.output)
+                back_link = f"../../../../{output_filename}"
+                
+                split_css = CSS_STYLES.replace("{{", "{").replace("}}", "}")
+                
+                review_data = {
+                    "model_name": model_name,
+                    "commit_id": commit_id,
+                    "subject": subject,
+                    "review": review
+                }
+                review_data_json = json.dumps(review_data)
+                
+                split_html = split_html_template.replace("{title}", html.escape(f"{model_name} Review - {commit_id[:12]}"))
+                split_html = split_html.replace("{css_styles}", split_css)
+                split_html = split_html.replace("{back_link}", back_link)
+                split_html = split_html.replace("{review_data_json}", review_data_json)
+                split_html = split_html.replace("{commit_base_url}", "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=" if args.kerncvs else "https://github.com/SUSE/kernel/commit/")
+                split_html = split_html.replace("{ks_base_url}", "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=" if args.kerncvs else "https://github.com/SUSE/kernel-source/commit/")
+                
+                split_file_path = os.path.join(split_dir, "review.html")
+                with open(split_file_path, "w", encoding="utf-8") as sf:
+                    sf.write(split_html)
+        
+        pruned_processed_data = []
+        for item in processed_data:
+            pruned_item = {
+                "id": item["id"],
+                "full_id": item["full_id"],
+                "subject": item["subject"],
+                "reviews": {}
+            }
+            for model_name, review in item["reviews"].items():
+                model_dir_name = model_name_to_dir[model_name]
+                prefix = item["full_id"][:2]
+                relative_url = f"reviews/{model_dir_name}/{prefix}/{item['full_id']}/review.html"
+                
+                pruned_review = {
+                    "metadata": review.get("metadata"),
+                    "url": relative_url
+                }
+                if "downstream_only" in review:
+                    pruned_review["downstream_only"] = review["downstream_only"]
+                if "pre_verification" in review:
+                    pruned_review["pre_verification"] = True
+                if "verified_result" in review:
+                    pruned_review["verified_result"] = True
+                
+                pruned_item["reviews"][model_name] = pruned_review
+            pruned_processed_data.append(pruned_item)
+            
+        json_data = json.dumps(pruned_processed_data, separators=(',', ':'))
+    else:
+        json_data = json.dumps(processed_data, separators=(',', ':'))
+
     compressed_data = base64.b64encode(zlib.compress(json_data.encode('utf-8'))).decode('ascii')
 
-    full_html = html_template.format(
+    # Replace the {css_styles} placeholder in html_template with the raw CSS styles
+    templated_html = html_template.replace("{css_styles}", CSS_STYLES)
+
+    full_html = templated_html.format(
         title=html.escape(args.title),
         author_options=author_options,
         branch_switcher_html=branch_switcher_html,

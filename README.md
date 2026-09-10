@@ -15,8 +15,9 @@ A Python-based tool to generate a single, standalone static HTML report for Linu
     - **Automatic Linkification**: Direct links to upstream Linux kernel, downstream kernel, and kernel-source repositories from within the review popup.
     - **Pre-verification Results**: Structured display of findings (Category, Type, Severity, Evidence).
 - **Navigation**: Support for both GitHub and SUSE KernCVS links.
-- **Standalone**: Generates a single HTML file with all data embedded; no backend server required.
-- **Data Compression**: Embedded review data is compressed (zlib/deflate) to significantly reduce the HTML file size.
+- **Split Pages & Standalone Modes**: By default, generates a lightweight index table HTML page, with each detailed commit review outputted to a self-contained subpage under the `reviews/` directory (following the database's subdirectory structure). Clicking any review cell redirects to the specific subpage, with full `localStorage` theme-syncing and visited-tracking. Alternatively, can generate a single giant standalone HTML report with all data embedded (original behavior) using `--single-page`.
+- **Standalone Subpages**: Each generated review subpage is self-contained (all styles and scripts are inlined) and can be opened locally via the `file://` protocol with no external dependencies.
+- **Data Compression**: Embedded index/review data is compressed (zlib/deflate) to significantly reduce the HTML file size.
 - **Save Functionality**: Allows users to "save" (download) modified review content directly from the browser.
 
 ## Review Table
@@ -102,6 +103,7 @@ These parameters take precedence over stored preferences and script defaults.
 - `--links-file`: Path to a JSON configuration file containing branch to URL mappings for the branch switcher (e.g., `test/branches.json`).
 - `--target-git`: Path to the git repository for the target code being reviewed. If provided, the actual diff/patch of each commit will be extracted and embedded into the report.
 - `--output`: Path to the output HTML file (default: `report.html`).
+- `--single-page`: If set, generates a single giant standalone HTML report where all review content is embedded and displayed inside modal popups (original behavior), instead of creating split subpages under `reviews/`.
 
 ## Dataset Structure
 

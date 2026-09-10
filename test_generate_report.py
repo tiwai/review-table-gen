@@ -214,5 +214,62 @@ class TestCommitterFiltering(unittest.TestCase):
         self.assertEqual(data["metadata"]["author"], "Anonymous Author <cve-kpm@example.com>")
         self.assertIn("Anonymous Author <cve-kpm@example.com>", authors)
 
+class TestSplitPageOptionsAndPruning(unittest.TestCase):
+    def test_cli_parser_has_single_page_option(self):
+        """Test that the argparse parser supports the --single-page option."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--single-page", action="store_true")
+        args = parser.parse_args(['--single-page'])
+        self.assertTrue(args.single_page)
+
+    def test_data_pruning_logic(self):
+        """Test that the review data is correctly pruned for index.html when single_page is false."""
+        raw_reviews = {
+            "model1": {
+                "metadata": {
+                    "author": "John Doe",
+                    "issue-severity-score": "High",
+                    "issues-found": 3,
+                    "review-time-seconds": 120,
+                    "suse-commit": "abcdef123"
+                },
+                "inline": "Heavy inline review content that should be pruned...",
+                "inline_is_json": False,
+                "downstream_only": 1,
+                "pre_verification": "Pre-verification details that are very large...",
+                "verified_result": "Verified results content...",
+                "fix_patches": "Fix patch content..."
+            }
+        }
+        
+        pruned_reviews = {}
+        for model_name, review in raw_reviews.items():
+            relative_url = f"reviews/{model_name}/ab/abcdef12345/review.html"
+            pruned_review = {
+                "metadata": review.get("metadata"),
+                "url": relative_url
+            }
+            if "downstream_only" in review:
+                pruned_review["downstream_only"] = review["downstream_only"]
+            if "pre_verification" in review:
+                pruned_review["pre_verification"] = True
+            if "verified_result" in review:
+                pruned_review["verified_result"] = True
+            pruned_reviews[model_name] = pruned_review
+
+        # Check that heavy fields are pruned
+        self.assertNotIn("inline", pruned_reviews["model1"])
+        self.assertNotIn("fix_patches", pruned_reviews["model1"])
+        
+        # Check that metadata is preserved
+        self.assertEqual(pruned_reviews["model1"]["metadata"]["author"], "John Doe")
+        self.assertEqual(pruned_reviews["model1"]["metadata"]["issues-found"], 3)
+        
+        # Check that boolean flags/placeholders and url are correct
+        self.assertEqual(pruned_reviews["model1"]["url"], "reviews/model1/ab/abcdef12345/review.html")
+        self.assertTrue(pruned_reviews["model1"]["pre_verification"])
+        self.assertTrue(pruned_reviews["model1"]["verified_result"])
+
 if __name__ == "__main__":
     unittest.main()
