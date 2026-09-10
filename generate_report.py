@@ -432,6 +432,18 @@ split_html_template = """<!DOCTYPE html>
 
     <div id="reviewContent"></div>
 
+    <div class="btn-container" style="margin-top: 15px; margin-bottom: 15px;">
+        <button id="verifiedResultBtn" class="btn" style="display: none;" onclick="toggleVerifiedResult()">Show Verified Result</button>
+    </div>
+
+    <div id="verifiedResultSection" style="display: none; margin-top: 20px;">
+        <h2>Verified Result</h2>
+        <div id="verifiedResultBody"></div>
+        <div class="btn-container" style="margin-top: 10px;">
+            <button class="btn" onclick="saveVerifiedResultContent()">Save Verified Result JSON</button>
+        </div>
+    </div>
+
     <div id="preVerifySection" style="display: none; margin-top: 20px;">
         <h2>Pre-Verified Issues</h2>
         <p class="warning">Warning: may contain false-positives</p>
@@ -622,6 +634,101 @@ split_html_template = """<!DOCTYPE html>
             }
         }
 
+        function renderVerifiedResult(jsonStr) {
+            try {
+                const data = JSON.parse(jsonStr);
+                let html = '<div class="verified-result-content" style="line-height: 1.6; font-size: 15px; color: var(--text-color);">';
+
+                // Define main metadata fields to display in a summary card/table
+                const mainFields = {
+                    're-verified-by': 'Re-Verified By',
+                    're-verified-date': 'Re-Verified Date',
+                    're-verification-summary': 'Re-Verification Summary',
+                    'verification_status': 'Verification Status'
+                };
+
+                let hasMeta = false;
+                let metaHtml = '<div style="background: var(--pre-bg); border: 1px solid var(--table-border); padding: 15px; border-radius: 6px; margin-bottom: 20px;">';
+                metaHtml += '<h3 style="margin-top: 0; border-bottom: 1px solid var(--table-border); padding-bottom: 8px;">Metadata</h3>';
+                metaHtml += '<table style="width:100%; border-collapse: collapse; margin-bottom: 0;">';
+
+                for (let [key, label] of Object.entries(mainFields)) {
+                    if (data[key] !== undefined) {
+                        hasMeta = true;
+                        metaHtml += `<tr style="border-bottom: 1px solid var(--table-border);">`;
+                        metaHtml += `<td style="font-weight: bold; width: 30%; padding: 8px 0; border: none;">${escapeHtml(label)}:</td>`;
+                        metaHtml += `<td style="padding: 8px 0; border: none;">${escapeHtml(data[key])}</td>`;
+                        metaHtml += `</tr>`;
+                    }
+                }
+
+                // Any other top-level keys that are simple primitives
+                for (let [key, val] of Object.entries(data)) {
+                    if (!mainFields[key] && key !== 'findings' && typeof val !== 'object' && val !== null) {
+                        hasMeta = true;
+                        metaHtml += `<tr style="border-bottom: 1px solid var(--table-border);">`;
+                        metaHtml += `<td style="font-weight: bold; width: 30%; padding: 8px 0; border: none;">${escapeHtml(key)}:</td>`;
+                        metaHtml += `<td style="padding: 8px 0; border: none;">${escapeHtml(val)}</td>`;
+                        metaHtml += `</tr>`;
+                    }
+                }
+
+                metaHtml += '</table></div>';
+                if (hasMeta) {
+                    html += metaHtml;
+                }
+
+                // Render findings
+                if (data.findings && Array.isArray(data.findings) && data.findings.length > 0) {
+                    html += '<h3 style="margin-top: 20px; margin-bottom: 10px;">Findings Re-Verification</h3>';
+                    data.findings.forEach((f, idx) => {
+                        const status = f['re-verification-status'] || '';
+                        const comment = f['re-verification-comment'] || '';
+                        const statusLower = status.toLowerCase();
+                        
+                        let badgeClass = 're-verified-unknown';
+                        if (statusLower === 'confirmed') badgeClass = 're-verified-confirmed';
+                        else if (statusLower === 'rejected' || statusLower === 'pruned') badgeClass = `re-verified-${statusLower}`;
+
+                        html += `<div style="border: 1px solid var(--table-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin-bottom: 12px; background: var(--table-bg);">`;
+                        html += `<div style="font-weight: bold; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">`;
+                        html += `<span>Finding ${idx + 1}</span>`;
+                        if (status) {
+                            html += `<span class="re-verified-badge ${badgeClass}" style="font-size: 12px; padding: 2px 6px;">${escapeHtml(status)}</span>`;
+                        }
+                        html += `</div>`;
+                        
+                        // Render any other custom fields inside finding
+                        let otherFindingFields = '';
+                        for (let [k, v] of Object.entries(f)) {
+                            if (k !== 're-verification-status' && k !== 're-verification-comment' && typeof v !== 'object' && v !== null) {
+                                otherFindingFields += `<div><strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)}</div>`;
+                            }
+                        }
+                        if (otherFindingFields) {
+                            html += `<div style="font-size: 0.9em; margin-bottom: 8px; opacity: 0.85;">${otherFindingFields}</div>`;
+                        }
+
+                        if (comment) {
+                            html += `<div style="margin-top: 6px;"><strong>Comment:</strong></div>`;
+                            html += `<div style="margin-top: 4px; padding: 8px; background: var(--verified-banner-bg); border-left: 3px solid var(--verified-border); border-radius: 3px; font-size: 0.95em;">${escapeHtml(comment)}</div>`;
+                        }
+                        html += '</div>';
+                    });
+                }
+
+                // If nothing was rendered, fallback to raw pretty JSON
+                if (!hasMeta && (!data.findings || data.findings.length === 0)) {
+                    html += `<pre style="white-space: pre-wrap; word-wrap: break-word; background: var(--code-block-bg); color: var(--text-color); font-family: monospace; padding: 10px; border-radius: 4px; border: 1px solid var(--code-block-border); margin: 0;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+                }
+
+                html += '</div>';
+                return html;
+            } catch (e) {
+                return `<pre style="white-space: pre-wrap; word-wrap: break-word; background: var(--code-block-bg); color: var(--text-color); font-family: monospace; padding: 10px; border-radius: 4px; border: 1px solid var(--code-block-border); margin: 0;">${escapeHtml(jsonStr)}</pre>`;
+            }
+        }
+
         function escapeHtml(text) {
             if (!text) return "";
             const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
@@ -795,6 +902,31 @@ split_html_template = """<!DOCTYPE html>
             URL.revokeObjectURL(url);
         }
 
+        function saveVerifiedResultContent() {
+            if (!activeReview || !activeReview.review.verified_result) return;
+            const content = activeReview.review.verified_result;
+            const blob = new Blob([content], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'verified-result.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function toggleVerifiedResult() {
+            const container = document.getElementById('verifiedResultSection');
+            const btn = document.getElementById('verifiedResultBtn');
+            if (!container) return;
+            if (container.style.display === 'none') {
+                container.style.display = 'block';
+                btn.innerText = 'Hide Verified Result';
+            } else {
+                container.style.display = 'none';
+                btn.innerText = 'Show Verified Result';
+            }
+        }
+
         function saveFixPatch() {
             if (!activeReview || !activeReview.review.fix_patches) return;
             const content = activeReview.review.fix_patches;
@@ -873,6 +1005,18 @@ split_html_template = """<!DOCTYPE html>
                 preBody.innerHTML = renderPreVerification(review.pre_verification);
             } else {
                 preContainer.style.display = 'none';
+            }
+
+            // Display Verified Result section if available
+            const verifiedBtn = document.getElementById('verifiedResultBtn');
+            const verifiedContainer = document.getElementById('verifiedResultSection');
+            if (review.verified_result) {
+                verifiedBtn.style.display = 'inline-block';
+                const verifiedBody = document.getElementById('verifiedResultBody');
+                verifiedBody.innerHTML = renderVerifiedResult(review.verified_result);
+            } else {
+                verifiedBtn.style.display = 'none';
+                verifiedContainer.style.display = 'none';
             }
 
             // Display Fix Patch section if available
@@ -1158,6 +1302,7 @@ def main():
             <div id="modalBody"></div>
             <div class="btn-container">
                 <button class="btn" onclick="saveContent()">Save</button>
+                <button id="verifiedResultBtn" class="btn btn-secondary" style="display:none">Verified Result</button>
                 <button id="preVerifyBtn" class="btn btn-secondary" style="display:none">Pre-Verified Issues</button>
                 <button class="btn btn-secondary" onclick="closeModal('reviewModal')">Close</button>
             </div>
@@ -1173,6 +1318,18 @@ def main():
             <div class="btn-container">
                 <button class="btn" onclick="savePreVerifyContent()">Save</button>
                 <button class="btn btn-secondary" onclick="closeModal('preVerifyModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="verifiedResultModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('verifiedResultModal')">&times;</span>
+            <h2>Verified Result</h2>
+            <div id="verifiedResultBody" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;"></div>
+            <div class="btn-container">
+                <button class="btn" onclick="saveVerifiedResultContent()">Save</button>
+                <button class="btn btn-secondary" onclick="closeModal('verifiedResultModal')">Close</button>
             </div>
         </div>
     </div>
@@ -1732,6 +1889,101 @@ def main():
             }}
         }}
 
+        function renderVerifiedResult(jsonStr) {{
+            try {{
+                const data = JSON.parse(jsonStr);
+                let html = '<div class="verified-result-content" style="line-height: 1.6; font-size: 15px; color: var(--text-color);">';
+
+                // Define main metadata fields to display in a summary card/table
+                const mainFields = {{
+                    're-verified-by': 'Re-Verified By',
+                    're-verified-date': 'Re-Verified Date',
+                    're-verification-summary': 'Re-Verification Summary',
+                    'verification_status': 'Verification Status'
+                }};
+
+                let hasMeta = false;
+                let metaHtml = '<div style="background: var(--pre-bg); border: 1px solid var(--table-border); padding: 15px; border-radius: 6px; margin-bottom: 20px;">';
+                metaHtml += '<h3 style="margin-top: 0; border-bottom: 1px solid var(--table-border); padding-bottom: 8px;">Metadata</h3>';
+                metaHtml += '<table style="width:100%; border-collapse: collapse; margin-bottom: 0;">';
+
+                for (let [key, label] of Object.entries(mainFields)) {{
+                    if (data[key] !== undefined) {{
+                        hasMeta = true;
+                        metaHtml += `<tr style="border-bottom: 1px solid var(--table-border);">`;
+                        metaHtml += `<td style="font-weight: bold; width: 30%; padding: 8px 0; border: none;">${{escapeHtml(label)}}:</td>`;
+                        metaHtml += `<td style="padding: 8px 0; border: none;">${{escapeHtml(data[key])}}</td>`;
+                        metaHtml += `</tr>`;
+                    }}
+                }}
+
+                // Any other top-level keys that are simple primitives
+                for (let [key, val] of Object.entries(data)) {{
+                    if (!mainFields[key] && key !== 'findings' && typeof val !== 'object' && val !== null) {{
+                        hasMeta = true;
+                        metaHtml += `<tr style="border-bottom: 1px solid var(--table-border);">`;
+                        metaHtml += `<td style="font-weight: bold; width: 30%; padding: 8px 0; border: none;">${{escapeHtml(key)}}:</td>`;
+                        metaHtml += `<td style="padding: 8px 0; border: none;">${{escapeHtml(val)}}</td>`;
+                        metaHtml += `</tr>`;
+                    }}
+                }}
+
+                metaHtml += '</table></div>';
+                if (hasMeta) {{
+                    html += metaHtml;
+                }}
+
+                // Render findings
+                if (data.findings && Array.isArray(data.findings) && data.findings.length > 0) {{
+                    html += '<h3 style="margin-top: 20px; margin-bottom: 10px;">Findings Re-Verification</h3>';
+                    data.findings.forEach((f, idx) => {{
+                        const status = f['re-verification-status'] || '';
+                        const comment = f['re-verification-comment'] || '';
+                        const statusLower = status.toLowerCase();
+                        
+                        let badgeClass = 're-verified-unknown';
+                        if (statusLower === 'confirmed') badgeClass = 're-verified-confirmed';
+                        else if (statusLower === 'rejected' || statusLower === 'pruned') badgeClass = `re-verified-${{statusLower}}`;
+
+                        html += `<div style="border: 1px solid var(--table-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin-bottom: 12px; background: var(--table-bg);">`;
+                        html += `<div style="font-weight: bold; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">`;
+                        html += `<span>Finding ${{idx + 1}}</span>`;
+                        if (status) {{
+                            html += `<span class="re-verified-badge ${{badgeClass}}" style="font-size: 12px; padding: 2px 6px;">${{escapeHtml(status)}}</span>`;
+                        }}
+                        html += `</div>`;
+                        
+                        // Render any other custom fields inside finding
+                        let otherFindingFields = '';
+                        for (let [k, v] of Object.entries(f)) {{
+                            if (k !== 're-verification-status' && k !== 're-verification-comment' && typeof v !== 'object' && v !== null) {{
+                                otherFindingFields += `<div><strong>${{escapeHtml(k)}}:</strong> ${{escapeHtml(v)}}</div>`;
+                            }}
+                        }}
+                        if (otherFindingFields) {{
+                            html += `<div style="font-size: 0.9em; margin-bottom: 8px; opacity: 0.85;">${{otherFindingFields}}</div>`;
+                        }}
+
+                        if (comment) {{
+                            html += `<div style="margin-top: 6px;"><strong>Comment:</strong></div>`;
+                            html += `<div style="margin-top: 4px; padding: 8px; background: var(--verified-banner-bg); border-left: 3px solid var(--verified-border); border-radius: 3px; font-size: 0.95em;">${{escapeHtml(comment)}}</div>`;
+                        }}
+                        html += '</div>';
+                    }});
+                }}
+
+                // If nothing was rendered, fallback to raw pretty JSON
+                if (!hasMeta && (!data.findings || data.findings.length === 0)) {{
+                    html += `<pre style="white-space: pre-wrap; word-wrap: break-word; background: var(--code-block-bg); color: var(--text-color); font-family: monospace; padding: 10px; border-radius: 4px; border: 1px solid var(--code-block-border); margin: 0;">${{escapeHtml(JSON.stringify(data, null, 2))}}</pre>`;
+                }}
+
+                html += '</div>';
+                return html;
+            }} catch (e) {{
+                return `<pre style="white-space: pre-wrap; word-wrap: break-word; background: var(--code-block-bg); color: var(--text-color); font-family: monospace; padding: 10px; border-radius: 4px; border: 1px solid var(--code-block-border); margin: 0;">${{escapeHtml(jsonStr)}}</pre>`;
+            }}
+        }}
+
         function escapeHtml(text) {{
             if (!text) return "";
             const map = {{ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }};
@@ -1921,6 +2173,14 @@ def main():
                 </div>
             `;
 
+            const verifiedBtn = document.getElementById('verifiedResultBtn');
+            if (review.verified_result) {{
+                verifiedBtn.style.display = 'block';
+                verifiedBtn.onclick = () => openVerifiedResult(commitId, dsName);
+            }} else {{
+                verifiedBtn.style.display = 'none';
+            }}
+
             const preBtn = document.getElementById('preVerifyBtn');
             if (review.pre_verification) {{
                 preBtn.style.display = 'block';
@@ -1958,6 +2218,14 @@ def main():
             const body = document.getElementById('preVerifyBody');
             body.innerHTML = renderPreVerification(review.pre_verification);
             document.getElementById('preVerifyModal').style.display = 'block';
+        }}
+
+        function openVerifiedResult(commitId, dsName) {{
+            const item = data.find(i => i.id === commitId);
+            const review = item.reviews[dsName];
+            const body = document.getElementById('verifiedResultBody');
+            body.innerHTML = renderVerifiedResult(review.verified_result);
+            document.getElementById('verifiedResultModal').style.display = 'block';
         }}
 
         function openFixPatch(commitId, dsName) {{
@@ -1999,6 +2267,18 @@ def main():
             URL.revokeObjectURL(url);
         }}
 
+        function saveVerifiedResultContent() {{
+            if (!activeReview || !activeReview.review.verified_result) return;
+            const content = activeReview.review.verified_result;
+            const blob = new Blob([content], {{ type: 'application/json' }});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'verified-result.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }}
+
         function saveFixPatch() {{
             if (!activeReview || !activeReview.review.fix_patches) return;
             const content = activeReview.review.fix_patches;
@@ -2021,6 +2301,7 @@ def main():
             if (event.key === "Escape") {{
                 closeModal('reviewModal');
                 closeModal('preVerifyModal');
+                closeModal('verifiedResultModal');
                 closeModal('fixPatchModal');
             }}
         }}

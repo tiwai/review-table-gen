@@ -271,5 +271,38 @@ class TestSplitPageOptionsAndPruning(unittest.TestCase):
         self.assertTrue(pruned_reviews["model1"]["pre_verification"])
         self.assertTrue(pruned_reviews["model1"]["verified_result"])
 
+class TestVerifiedResultHandling(unittest.TestCase):
+    @patch("os.path.exists")
+    @patch("builtins.open")
+    def test_get_review_data_with_verified_result(self, mock_open, mock_exists):
+        """Test that get_review_data correctly loads verified-result.json if present."""
+        # Setup mock exists to return True for metadata and verified-result
+        mock_exists.side_effect = lambda path: "review-metadata.json" in path or "verified-result.json" in path
+        
+        # Setup mock open
+        mock_file_metadata = MagicMock()
+        mock_file_metadata.__enter__.return_value = mock_file_metadata
+        mock_file_metadata.read.return_value = '{"author": "Jane"}'
+        
+        mock_file_verified = MagicMock()
+        mock_file_verified.__enter__.return_value = mock_file_verified
+        mock_file_verified.read.return_value = '{"re-verified-by": "Jane"}'
+        
+        def mock_open_side_effect(path, mode="r", encoding=None):
+            if "review-metadata.json" in path:
+                return mock_file_metadata
+            elif "verified-result.json" in path:
+                return mock_file_verified
+            return MagicMock()
+            
+        mock_open.side_effect = mock_open_side_effect
+        
+        # Call get_review_data
+        result = generate_report.get_review_data("/fake/dataset", "1234567890abcdef1234567890abcdef12345678")
+        
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["author"], "Jane")
+        self.assertEqual(result["verified_result"], '{"re-verified-by": "Jane"}')
+
 if __name__ == "__main__":
     unittest.main()
