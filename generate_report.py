@@ -417,7 +417,7 @@ split_html_template = """<!DOCTYPE html>
 </head>
 <body>
     <div class="header-container" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <a href="{back_link}" class="btn" style="text-decoration: none;">&larr; Back to Main Table</a>
+        <a href="{back_link}" class="btn" id="backLink" style="text-decoration: none;">&larr; Back to Main Table</a>
         <div class="theme-switcher">
             <span>Theme:</span>
             <select class="themeSelect" onchange="setTheme(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
@@ -482,9 +482,30 @@ split_html_template = """<!DOCTYPE html>
 
         function setTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('theme', theme);
+            try {
+                localStorage.setItem('theme', theme);
+            } catch (e) {
+                console.warn('localStorage is not available:', e);
+            }
             document.querySelectorAll('.themeSelect').forEach(s => s.value = theme);
+            
+            // Sync theme to back button
+            const backLink = document.getElementById('backLink');
+            if (backLink) {
+                let href = backLink.getAttribute('data-base-href');
+                if (!href) {
+                    href = backLink.getAttribute('href').split('?')[0];
+                    backLink.setAttribute('data-base-href', href);
+                }
+                backLink.href = href + '?theme=' + theme;
+            }
         }
+
+        window.addEventListener('storage', function(e) {
+            if (e.key === 'theme' && e.newValue) {
+                setTheme(e.newValue);
+            }
+        });
 
         function toggleCommitDiff() {
             const container = document.getElementById('commitDiffContainer');
@@ -948,8 +969,18 @@ split_html_template = """<!DOCTYPE html>
         }
 
         function init() {
-            // Apply saved theme
-            const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            const urlParams = new URLSearchParams(window.location.search);
+            let savedTheme = urlParams.get('theme');
+            if (!savedTheme) {
+                try {
+                    savedTheme = localStorage.getItem('theme');
+                } catch (e) {
+                    console.warn('localStorage is not available:', e);
+                }
+            }
+            if (!savedTheme) {
+                savedTheme = (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            }
             setTheme(savedTheme);
 
             const review = reviewData.review;
@@ -960,10 +991,19 @@ split_html_template = """<!DOCTYPE html>
 
             // Mark as visited in localStorage
             const reviewKey = `${commitId}-${dsName}`;
-            let visitedReviews = new Set(JSON.parse(localStorage.getItem('visitedReviews') || '[]'));
+            let visitedReviews = new Set();
+            try {
+                visitedReviews = new Set(JSON.parse(localStorage.getItem('visitedReviews') || '[]'));
+            } catch (e) {
+                console.warn('localStorage is not available:', e);
+            }
             if (!visitedReviews.has(reviewKey)) {
                 visitedReviews.add(reviewKey);
-                localStorage.setItem('visitedReviews', JSON.stringify([...visitedReviews]));
+                try {
+                    localStorage.setItem('visitedReviews', JSON.stringify([...visitedReviews]));
+                } catch (e) {
+                    console.warn('localStorage is not available:', e);
+                }
             }
 
             const titleEl = document.getElementById('pageTitle');
@@ -1364,8 +1404,21 @@ def main():
         let currentPage = 1;
         let filteredData = [];
         let activeReview = null;
-        let visitedReviews = new Set(JSON.parse(localStorage.getItem('visitedReviews') || '[]'));
-        let commitStates = JSON.parse(localStorage.getItem('commitStates') || '{{}}');
+        
+        let visitedReviews = new Set();
+        try {{
+            visitedReviews = new Set(JSON.parse(localStorage.getItem('visitedReviews') || '[]'));
+        }} catch (e) {{
+            console.warn('localStorage is not available:', e);
+        }}
+
+        let commitStates = {{}};
+        try {{
+            commitStates = JSON.parse(localStorage.getItem('commitStates') || '{{}}');
+        }} catch (e) {{
+            console.warn('localStorage is not available:', e);
+        }}
+
         let showReviewTime = {show_review_time};
 
         function toggleCommitState(commitId, event) {{
@@ -1381,7 +1434,11 @@ def main():
             }} else {{
                 commitStates[commitId] = newState;
             }}
-            localStorage.setItem('commitStates', JSON.stringify(commitStates));
+            try {{
+                localStorage.setItem('commitStates', JSON.stringify(commitStates));
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
             
             const icon = newState === 'ok' ? '✅' : (newState === 'bad' ? '❌' : '');
             document.querySelectorAll(`td.state-cell[data-commit-id="${{commitId}}"]`).forEach(el => {{
@@ -1416,7 +1473,11 @@ def main():
             const key = `${{commitId}}-${{dsName}}`;
             if (!visitedReviews.has(key)) {{
                 visitedReviews.add(key);
-                localStorage.setItem('visitedReviews', JSON.stringify([...visitedReviews]));
+                try {{
+                    localStorage.setItem('visitedReviews', JSON.stringify([...visitedReviews]));
+                }} catch (e) {{
+                    console.warn('localStorage is not available:', e);
+                }}
                 document.querySelectorAll(`td[data-review-id="${{key}}"]`).forEach(el => el.classList.add('visited'));
             }}
         }}
@@ -1442,7 +1503,12 @@ def main():
                 const selected = urlModels.split(',');
                 visibleDatasets = datasets.filter(ds => selected.includes(ds));
             }} else {{
-                const savedModels = localStorage.getItem('visibleDatasets');
+                let savedModels = null;
+                try {{
+                    savedModels = localStorage.getItem('visibleDatasets');
+                }} catch (e) {{
+                    console.warn('localStorage is not available:', e);
+                }}
                 if (savedModels) {{
                     try {{
                         const parsed = JSON.parse(savedModels);
@@ -1460,7 +1526,12 @@ def main():
             if (urlShowReviewTime !== null) {{
                 showReviewTime = (urlShowReviewTime === 'true' || urlShowReviewTime === '1');
             }} else {{
-                const savedShowReviewTime = localStorage.getItem('showReviewTime');
+                let savedShowReviewTime = null;
+                try {{
+                    savedShowReviewTime = localStorage.getItem('showReviewTime');
+                }} catch (e) {{
+                    console.warn('localStorage is not available:', e);
+                }}
                 if (savedShowReviewTime !== null) {{
                     showReviewTime = (savedShowReviewTime === 'true');
                 }}
@@ -1472,10 +1543,26 @@ def main():
             ksBaseUrl = useKernCVS ? "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=" : "https://github.com/SUSE/kernel-source/commit/";
 
             // Initialize theme
-            let savedTheme = urlParams.get('theme') || localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            let savedTheme = urlParams.get('theme');
+            if (!savedTheme) {{
+                try {{
+                    savedTheme = localStorage.getItem('theme');
+                }} catch (e) {{
+                    console.warn('localStorage is not available:', e);
+                }}
+            }}
+            if (!savedTheme) {{
+                savedTheme = (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            }}
             setTheme(savedTheme);
 
-            rowsPerPage = parseInt(urlParams.get('rows')) || parseInt(localStorage.getItem('rowsPerPage')) || rowsPerPage;
+            let savedRowsPerPage = null;
+            try {{
+                savedRowsPerPage = localStorage.getItem('rowsPerPage');
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
+            rowsPerPage = parseInt(urlParams.get('rows')) || parseInt(savedRowsPerPage) || rowsPerPage;
             document.querySelectorAll('.rowsPerPageSelect').forEach(s => s.value = rowsPerPage);
 
             const initialSearch = urlParams.get('search') || "";
@@ -1483,7 +1570,13 @@ def main():
                 document.getElementById('subjectSearch').value = initialSearch;
             }}
 
-            const initialAuthor = urlParams.get('author') || localStorage.getItem('authorFilter');
+            let savedAuthorFilter = null;
+            try {{
+                savedAuthorFilter = localStorage.getItem('authorFilter');
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
+            const initialAuthor = urlParams.get('author') || savedAuthorFilter;
             if (initialAuthor) {{
                 const filter = document.getElementById('authorFilter');
                 let option = [...filter.options].find(o => o.value === initialAuthor);
@@ -1494,7 +1587,13 @@ def main():
                 if (option) filter.value = option.value;
             }}
 
-            const initialSeverity = urlParams.get('severity') || localStorage.getItem('severityFilter');
+            let savedSeverityFilter = null;
+            try {{
+                savedSeverityFilter = localStorage.getItem('severityFilter');
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
+            const initialSeverity = urlParams.get('severity') || savedSeverityFilter;
             if (initialSeverity) {{
                 const filter = document.getElementById('severityFilter');
                 if ([...filter.options].some(o => o.value === initialSeverity)) {{
@@ -1532,7 +1631,11 @@ def main():
 
         function toggleReviewTime(visible) {{
             showReviewTime = visible;
-            localStorage.setItem('showReviewTime', showReviewTime);
+            try {{
+                localStorage.setItem('showReviewTime', showReviewTime);
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
             renderTable();
         }}
 
@@ -1545,19 +1648,66 @@ def main():
             }} else {{
                 visibleDatasets = visibleDatasets.filter(d => d !== ds);
             }}
-            localStorage.setItem('visibleDatasets', JSON.stringify(visibleDatasets));
+            try {{
+                localStorage.setItem('visibleDatasets', JSON.stringify(visibleDatasets));
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
             renderTable();
         }}
 
         function setTheme(theme) {{
             document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('theme', theme);
+            try {{
+                localStorage.setItem('theme', theme);
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
             document.querySelectorAll('.themeSelect').forEach(s => s.value = theme);
+            updateLinkThemes(theme);
+            updateBranchSwitcherTheme(theme);
+        }}
+
+        window.addEventListener('storage', function(e) {{
+            if (e.key === 'theme' && e.newValue) {{
+                setTheme(e.newValue);
+            }}
+        }});
+
+        function updateLinkThemes(theme) {{
+            document.querySelectorAll('a.review-page-link').forEach(a => {{
+                let href = a.getAttribute('data-base-href');
+                if (!href) {{
+                    href = a.getAttribute('href').split('?')[0];
+                    a.setAttribute('data-base-href', href);
+                }}
+                a.href = href + '?theme=' + theme;
+            }});
+        }}
+
+        function updateBranchSwitcherTheme(theme) {{
+            const select = document.getElementById('branchSelect');
+            if (select) {{
+                [...select.options].forEach(option => {{
+                    if (option.value) {{
+                        let url = option.getAttribute('data-base-url');
+                        if (!url) {{
+                            url = option.value.split('?')[0];
+                            option.setAttribute('data-base-url', url);
+                        }}
+                        option.value = url + '?theme=' + theme;
+                    }}
+                }});
+            }}
         }}
 
         function setRowsPerPage(value) {{
             rowsPerPage = parseInt(value);
-            localStorage.setItem('rowsPerPage', value);
+            try {{
+                localStorage.setItem('rowsPerPage', value);
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
             document.querySelectorAll('.rowsPerPageSelect').forEach(s => s.value = value);
             currentPage = 1;
             renderTable();
@@ -1568,8 +1718,12 @@ def main():
             const severityThreshold = document.getElementById('severityFilter').value;
             const searchText = document.getElementById('subjectSearch').value.toLowerCase();
 
-            localStorage.setItem('authorFilter', author);
-            localStorage.setItem('severityFilter', severityThreshold);
+            try {{
+                localStorage.setItem('authorFilter', author);
+                localStorage.setItem('severityFilter', severityThreshold);
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
 
             const severityMap = {{ "none": 0, "low": 1, "medium": 2, "high": 3 }};
             const thresholdValue = severityMap[severityThreshold] || 0;
@@ -1669,8 +1823,8 @@ def main():
 
                         if (review.url) {{
                             clickAction = `onclick="markVisited('${{item.id}}', '${{dsName}}')"`;
-                            issuesContent = `<a href="${{review.url}}" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{issuesText}}</a>`;
-                            severityContent = `<a href="${{review.url}}" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{metadata['issue-severity-score']}}</a>`;
+                            issuesContent = `<a href="${{review.url}}" class="review-page-link" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{issuesText}}</a>`;
+                            severityContent = `<a href="${{review.url}}" class="review-page-link" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{metadata['issue-severity-score']}}</a>`;
                         }}
 
                         html += `<td class="issues-cell ${{dsClass}} ${{preClass}} ${{verifiedClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesContent}}</td>`;
@@ -1693,6 +1847,8 @@ def main():
             html += '</tbody></table>';
             document.getElementById('tableContainer').innerHTML = html;
             renderPagination();
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+            updateLinkThemes(currentTheme);
         }}
 
         function renderPagination() {{
