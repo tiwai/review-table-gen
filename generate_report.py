@@ -432,33 +432,41 @@ split_html_template = """<!DOCTYPE html>
 
     <div id="reviewContent"></div>
 
-    <div class="btn-container" style="margin-top: 15px; margin-bottom: 15px;">
-        <button id="verifiedResultBtn" class="btn" style="display: none;" onclick="toggleVerifiedResult()">Show Verified Result</button>
-    </div>
-
     <div id="verifiedResultSection" style="display: none; margin-top: 20px;">
-        <h2>Verified Result</h2>
-        <div id="verifiedResultBody"></div>
-        <div class="btn-container" style="margin-top: 10px;">
-            <button class="btn" onclick="saveVerifiedResultContent()">Save Verified Result JSON</button>
+        <h2 onclick="toggleSection('verifiedResultContent', 'verifiedResultArrow')" style="cursor: pointer; user-select: none;">
+            <span id="verifiedResultArrow">▶</span> Verified Result
+        </h2>
+        <div id="verifiedResultContent" style="display: none; margin-top: 10px;">
+            <div id="verifiedResultBody"></div>
+            <div class="btn-container" style="margin-top: 10px;">
+                <button class="btn" onclick="saveVerifiedResultContent()">Save Verified Result JSON</button>
+            </div>
         </div>
     </div>
 
     <div id="preVerifySection" style="display: none; margin-top: 20px;">
-        <h2>Pre-Verified Issues</h2>
-        <p class="warning">Warning: may contain false-positives</p>
-        <div id="preVerifyBody"></div>
-        <div class="btn-container" style="margin-top: 10px;">
-            <button class="btn" onclick="savePreVerifyContent()">Save Pre-Verification JSON</button>
+        <h2 onclick="toggleSection('preVerifyContent', 'preVerifyArrow')" style="cursor: pointer; user-select: none;">
+            <span id="preVerifyArrow">▶</span> Pre-Verified Issues
+        </h2>
+        <div id="preVerifyContent" style="display: none; margin-top: 10px;">
+            <p class="warning">Warning: may contain false-positives</p>
+            <div id="preVerifyBody"></div>
+            <div class="btn-container" style="margin-top: 10px;">
+                <button class="btn" onclick="savePreVerifyContent()">Save Pre-Verification JSON</button>
+            </div>
         </div>
     </div>
 
     <div id="fixPatchSection" style="display: none; margin-top: 20px;">
-        <h2>Fix Patch</h2>
-        <p class="warning">Warning: Patches can be bogus, use only as a reference</p>
-        <div id="fixPatchBody" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;"></div>
-        <div class="btn-container">
-            <button class="btn" onclick="saveFixPatch()">Save Fix Patch</button>
+        <h2 onclick="toggleSection('fixPatchContent', 'fixPatchArrow')" style="cursor: pointer; user-select: none;">
+            <span id="fixPatchArrow">▶</span> Fix Patch
+        </h2>
+        <div id="fixPatchContent" style="display: none; margin-top: 10px;">
+            <p class="warning">Warning: Patches can be bogus, use only as a reference</p>
+            <div id="fixPatchBody" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;"></div>
+            <div class="btn-container">
+                <button class="btn" onclick="saveFixPatch()">Save Fix Patch</button>
+            </div>
         </div>
     </div>
 
@@ -914,16 +922,16 @@ split_html_template = """<!DOCTYPE html>
             URL.revokeObjectURL(url);
         }
 
-        function toggleVerifiedResult() {
-            const container = document.getElementById('verifiedResultSection');
-            const btn = document.getElementById('verifiedResultBtn');
+        function toggleSection(contentId, arrowId) {
+            const container = document.getElementById(contentId);
+            const arrow = document.getElementById(arrowId);
             if (!container) return;
             if (container.style.display === 'none') {
                 container.style.display = 'block';
-                btn.innerText = 'Hide Verified Result';
+                if (arrow) arrow.innerText = '▼';
             } else {
                 container.style.display = 'none';
-                btn.innerText = 'Show Verified Result';
+                if (arrow) arrow.innerText = '▶';
             }
         }
 
@@ -1008,14 +1016,12 @@ split_html_template = """<!DOCTYPE html>
             }
 
             // Display Verified Result section if available
-            const verifiedBtn = document.getElementById('verifiedResultBtn');
             const verifiedContainer = document.getElementById('verifiedResultSection');
             if (review.verified_result) {
-                verifiedBtn.style.display = 'inline-block';
+                verifiedContainer.style.display = 'block';
                 const verifiedBody = document.getElementById('verifiedResultBody');
                 verifiedBody.innerHTML = renderVerifiedResult(review.verified_result);
             } else {
-                verifiedBtn.style.display = 'none';
                 verifiedContainer.style.display = 'none';
             }
 
