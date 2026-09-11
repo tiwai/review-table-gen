@@ -1100,6 +1100,7 @@ def main():
     parser.add_argument("--output", default="report.html", help="Output HTML file")
     parser.add_argument("--show-review-time", action="store_true", help="Show review time column in the table by default")
     parser.add_argument("--single-page", action="store_true", help="Generate a single static HTML page (old behavior)")
+    parser.add_argument("--update", help="Only update review entries modified in the given git commit range")
     
     args = parser.parse_args()
 
@@ -1183,6 +1184,42 @@ def main():
             
             dataset_sources[model_name] = model_path
             model_name_to_dir[model_name] = model_dir_name
+
+    modified_commits = set()
+    if args.update:
+        import git
+        update_repo = None
+        if args.git:
+            update_repo = repo
+        elif args.dataset:
+            try:
+                update_repo = git.Repo(args.dataset, search_parent_directories=True)
+            except Exception as e:
+                print(f"Error: Could not open git repository for dataset at '{args.dataset}': {e}")
+                sys.exit(1)
+        
+        if update_repo is None:
+            print("Error: Git repository for the dataset is not available.")
+            sys.exit(1)
+
+        try:
+            diff_output = update_repo.git.diff(args.update, name_only=True)
+            modified_files = diff_output.strip().splitlines()
+        except Exception as e:
+            print(f"Error: Failed to get diff for range '{args.update}': {e}")
+            sys.exit(1)
+
+        for fpath in modified_files:
+            normalized = fpath.replace('\\', '/')
+            parts = normalized.split('/')
+            for i in range(2, len(parts)):
+                commit_id_candidate = parts[i]
+                if len(commit_id_candidate) == 40 and all(c in "0123456789abcdefABCDEF" for c in commit_id_candidate):
+                    prefix_candidate = parts[i-1]
+                    if len(prefix_candidate) == 2 and commit_id_candidate.startswith(prefix_candidate):
+                        model_dir_candidate = parts[i-2]
+                        if model_dir_candidate in args.model:
+                            modified_commits.add((model_dir_candidate, commit_id_candidate.lower()))
 
     target_repo = None
     if args.target_git:
@@ -2503,6 +2540,10 @@ def main():
             
             for model_name, review in item["reviews"].items():
                 model_dir_name = model_name_to_dir[model_name]
+                
+                if args.update and (model_dir_name, full_id.lower()) not in modified_commits:
+                    continue
+                
                 split_dir = os.path.join(output_dir, "reviews", model_dir_name, prefix, full_id)
                 os.makedirs(split_dir, exist_ok=True)
                 

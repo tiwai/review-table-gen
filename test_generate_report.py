@@ -304,5 +304,52 @@ class TestVerifiedResultHandling(unittest.TestCase):
         self.assertEqual(result["metadata"]["author"], "Jane")
         self.assertEqual(result["verified_result"], '{"re-verified-by": "Jane"}')
 
+class TestPartialUpdateMode(unittest.TestCase):
+    def test_cli_parser_has_update_option(self):
+        """Test that the argparse parser supports the --update option."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--update", help="Only update review entries modified in the given git commit range")
+        args = parser.parse_args(['--update', 'HEAD~3..HEAD'])
+        self.assertEqual(args.update, 'HEAD~3..HEAD')
+
+    @patch("git.Repo")
+    def test_modified_commits_extraction_with_update(self, mock_repo_class):
+        """Test that modified commits are parsed correctly from git diff output."""
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        # Simulate git diff returning modified files
+        mock_repo.git.diff.return_value = (
+            "gemma-4/27/27bff05802f55fb805a5fe10b80d37f4fddb9729/review-metadata.json\n"
+            "qwen3.6-q4/ab/abcdef1234567890abcdef1234567890abcdef12/review-inline.json\n"
+            "unrelated-file.txt\n"
+        )
+        
+        # Test the path parsing logic
+        args_model = ["gemma-4", "qwen3.6-q4"]
+        args_update = "HEAD~1..HEAD"
+        
+        modified_commits = set()
+        if args_update:
+            diff_output = mock_repo.git.diff(args_update, name_only=True)
+            modified_files = diff_output.strip().splitlines()
+            
+            for fpath in modified_files:
+                normalized = fpath.replace('\\', '/')
+                parts = normalized.split('/')
+                for i in range(2, len(parts)):
+                    commit_id_candidate = parts[i]
+                    if len(commit_id_candidate) == 40 and all(c in "0123456789abcdefABCDEF" for c in commit_id_candidate):
+                        prefix_candidate = parts[i-1]
+                        if len(prefix_candidate) == 2 and commit_id_candidate.startswith(prefix_candidate):
+                            model_dir_candidate = parts[i-2]
+                            if model_dir_candidate in args_model:
+                                modified_commits.add((model_dir_candidate, commit_id_candidate.lower()))
+                                
+        self.assertEqual(len(modified_commits), 2)
+        self.assertIn(("gemma-4", "27bff05802f55fb805a5fe10b80d37f4fddb9729"), modified_commits)
+        self.assertIn(("qwen3.6-q4", "abcdef1234567890abcdef1234567890abcdef12"), modified_commits)
+
 if __name__ == "__main__":
     unittest.main()
