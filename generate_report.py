@@ -549,12 +549,6 @@ split_html_template = """<!DOCTYPE html>
                     cleanLine = line.substring(2);
                 }
 
-                // Handle inline code `...`
-                let content = escapeHtml(cleanLine)
-                    .replace(/`([^`]+)`/g, '<code style="background: var(--table-bg); border: 1px solid var(--table-border); padding: 1px 4px; border-radius: 3px; font-family: monospace; color: var(--diff-removed-text);">$1</code>')
-                    .replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>')
-                    .replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
-                
                 let className = "";
                 if (cleanLine.startsWith('+++') || cleanLine.startsWith('---')) className = "diff-meta";
                 else if (cleanLine.startsWith('+')) className = "diff-added";
@@ -562,6 +556,16 @@ split_html_template = """<!DOCTYPE html>
                 else if (cleanLine.startsWith('@@')) className = "diff-header";
                 else if (cleanLine.startsWith('diff --git') || cleanLine.startsWith('index ')) className = "diff-meta";
                 else if (cleanLine.startsWith('#')) className = "diff-meta";
+                else if (cleanLine.startsWith(' ')) className = "diff-context";
+
+                // Handle inline code `...`
+                let content = escapeHtml(cleanLine);
+                if (!className) {
+                    content = content
+                        .replace(/`([^`]+)`/g, '<code style="background: var(--table-bg); border: 1px solid var(--table-border); padding: 1px 4px; border-radius: 3px; font-family: monospace; color: var(--diff-removed-text);">$1</code>')
+                        .replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>')
+                        .replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
+                }
 
                 if (isInline) {
                     const trimmed = cleanLine.trim();
@@ -1974,12 +1978,6 @@ def main():
                     cleanLine = line.substring(2);
                 }}
 
-                // Handle inline code `...`
-                let content = escapeHtml(cleanLine)
-                    .replace(/`([^`]+)`/g, '<code style="background: var(--table-bg); border: 1px solid var(--table-border); padding: 1px 4px; border-radius: 3px; font-family: monospace; color: var(--diff-removed-text);">$1</code>')
-                    .replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>')
-                    .replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
-                
                 let className = "";
                 if (cleanLine.startsWith('+++') || cleanLine.startsWith('---')) className = "diff-meta";
                 else if (cleanLine.startsWith('+')) className = "diff-added";
@@ -1987,6 +1985,16 @@ def main():
                 else if (cleanLine.startsWith('@@')) className = "diff-header";
                 else if (cleanLine.startsWith('diff --git') || cleanLine.startsWith('index ')) className = "diff-meta";
                 else if (cleanLine.startsWith('#')) className = "diff-meta";
+                else if (cleanLine.startsWith(' ')) className = "diff-context";
+
+                // Handle inline code `...`
+                let content = escapeHtml(cleanLine);
+                if (!className) {{
+                    content = content
+                        .replace(/`([^`]+)`/g, '<code style="background: var(--table-bg); border: 1px solid var(--table-border); padding: 1px 4px; border-radius: 3px; font-family: monospace; color: var(--diff-removed-text);">$1</code>')
+                        .replace(/\\*\\*([^\\*]+)\\*\\*/g, '<strong>$1</strong>')
+                        .replace(/\\*([^\\*]+)\\*/g, '<em>$1</em>');
+                }}
 
                 if (isInline) {{
                     const trimmed = cleanLine.trim();
