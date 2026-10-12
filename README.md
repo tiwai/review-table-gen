@@ -92,7 +92,7 @@ These parameters take precedence over stored preferences and script defaults.
 
 ### Arguments
 
-- `--list`: Path to the commit list file (format: `sha subject`).
+- `--list`: Path to the commit list file (format: `sha subject`). Optional if `--update` is specified.
 - `--dataset`: Path to the database directory containing model subdirectories. Exclusive with `--git`.
 - `--git`: Path to the git repository containing model subdirectories directly at its root commit tree. Exclusive with `--dataset`.
 - `--model`: The subdirectory name of the model to include (e.g., `gpt-oss`, `gemma-4`). Can be used multiple times.
@@ -104,6 +104,8 @@ These parameters take precedence over stored preferences and script defaults.
 - `--target-git`: Path to the git repository for the target code being reviewed. If provided, the actual diff/patch of each commit will be extracted and embedded into the report.
 - `--output`: Path to the output HTML file (default: `report.html`).
 - `--single-page`: If set, generates a single giant standalone HTML report where all review content is embedded and displayed inside modal popups (original behavior), instead of creating split subpages under `reviews/`.
+- `--update`: Only update review entries modified in the given git commit range (e.g. `ID1..ID2`), commit list file, or list of commit IDs. Split review subpages will only be generated for the specified/modified commits, while the main index table is fully updated. Newly added commits are appended to the report.
+- `--update-list`: Commit list file or list of commits to update (alias for `--update`).
 
 ## Dataset Structure
 

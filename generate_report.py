@@ -137,6 +137,161 @@ def get_commit_diff(target_repo, commit_id):
     except Exception as e:
         return None
 
+def process_update_spec(update_specs, models, dataset_sources=None, repo=None, dataset=None, commits=None):
+    """
+    Process update specifications (commit list files, commit IDs, or git ranges).
+    Populates modified_commits set with (model, commit_id) tuples and commit IDs.
+    If commits list is provided, any commits in the update specification that are
+    not yet present in commits will be appended.
+    """
+    if not update_specs:
+        return set()
+
+    if isinstance(update_specs, str):
+        update_specs = [update_specs]
+
+    modified_commits = set()
+    dataset_sources = dataset_sources or {}
+
+    def resolve_cid(cid):
+        cid_clean = cid.strip().lower()
+        if len(cid_clean) == 40 and all(c in "0123456789abcdef" for c in cid_clean):
+            return cid_clean
+        if commits:
+            for c in commits:
+                c_id = c["id"].lower()
+                if c_id == cid_clean or c_id.startswith(cid_clean):
+                    if len(c_id) == 40:
+                        return c_id
+        for source in dataset_sources.values():
+            resolved = resolve_full_id(source, cid.strip())
+            if resolved:
+                return resolved.lower()
+        return cid_clean
+
+    def add_commit_entry(cid, subj=""):
+        cid_clean = cid.strip()
+        if not cid_clean:
+            return
+        full_id = resolve_cid(cid_clean)
+        for m in models:
+            modified_commits.add((m, full_id))
+            modified_commits.add((m, cid_clean.lower()))
+        modified_commits.add(full_id)
+        modified_commits.add(cid_clean.lower())
+
+        if commits is not None:
+            found = False
+            for c in commits:
+                c_id = c["id"].lower()
+                if c_id == full_id or c_id == cid_clean.lower() or (len(c_id) == 40 and c_id.startswith(cid_clean.lower())) or (len(cid_clean) == 40 and cid_clean.lower().startswith(c_id)):
+                    found = True
+                    if not c.get("subject") and subj:
+                        c["subject"] = subj
+                    break
+            if not found:
+                commits.append({"id": cid_clean, "subject": subj})
+
+    def process_file_or_diff_path(line):
+        normalized = line.replace('\\', '/')
+        parts = normalized.split('/')
+        matched = False
+        for i in range(2, len(parts)):
+            commit_id_candidate = parts[i]
+            if len(commit_id_candidate) == 40 and all(c in "0123456789abcdefABCDEF" for c in commit_id_candidate):
+                prefix_candidate = parts[i-1]
+                if len(prefix_candidate) == 2 and commit_id_candidate.startswith(prefix_candidate):
+                    model_dir_candidate = parts[i-2]
+                    if model_dir_candidate in models:
+                        modified_commits.add((model_dir_candidate, commit_id_candidate.lower()))
+                        matched = True
+                        if commits is not None:
+                            c_id_lower = commit_id_candidate.lower()
+                            if not any(c["id"].lower() == c_id_lower for c in commits):
+                                commits.append({"id": c_id_lower, "subject": ""})
+        return matched
+
+    for spec in update_specs:
+        if not spec:
+            continue
+        if os.path.isfile(spec):
+            with open(spec, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "/" in line or "\\" in line:
+                        if process_file_or_diff_path(line):
+                            continue
+                    if "," in line:
+                        for token in line.split(","):
+                            token = token.strip()
+                            if token:
+                                add_commit_entry(token)
+                    else:
+                        parts = line.split()
+                        all_hex = all(len(p) >= 7 and all(c in "0123456789abcdefABCDEF" for c in p) for p in parts)
+                        if len(parts) > 1 and all_hex:
+                            for p in parts:
+                                add_commit_entry(p)
+                        else:
+                            split_parts = line.split(None, 1)
+                            cid = split_parts[0]
+                            subj = split_parts[1] if len(split_parts) > 1 else ""
+                            add_commit_entry(cid, subj)
+        elif ".." in spec or spec.startswith("HEAD~") or spec.startswith("HEAD^"):
+            import git
+            update_repo = None
+            if repo:
+                update_repo = repo
+            elif dataset:
+                try:
+                    update_repo = git.Repo(dataset, search_parent_directories=True)
+                except Exception as e:
+                    print(f"Error: Could not open git repository for dataset at '{dataset}': {e}")
+                    sys.exit(1)
+
+            if update_repo is None:
+                print("Error: Git repository for the dataset is not available.")
+                sys.exit(1)
+
+            try:
+                diff_output = update_repo.git.diff(spec, name_only=True)
+                modified_files = diff_output.strip().splitlines()
+            except Exception as e:
+                print(f"Error: Failed to get diff for range '{spec}': {e}")
+                sys.exit(1)
+
+            for fpath in modified_files:
+                process_file_or_diff_path(fpath)
+        else:
+            if spec.endswith((".txt", ".list", ".json", ".log")) or "/" in spec or "\\" in spec:
+                print(f"Error: Update file '{spec}' not found.")
+                sys.exit(1)
+
+            for line in spec.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "," in line:
+                    for token in line.split(","):
+                        token = token.strip()
+                        if token:
+                            add_commit_entry(token)
+                else:
+                    parts = line.split()
+                    all_hex = all(len(p) >= 7 and all(c in "0123456789abcdefABCDEF" for c in p) for p in parts)
+                    if len(parts) > 1 and all_hex:
+                        for p in parts:
+                            add_commit_entry(p)
+                    else:
+                        split_parts = line.split(None, 1)
+                        cid = split_parts[0]
+                        subj = split_parts[1] if len(split_parts) > 1 else ""
+                        add_commit_entry(cid, subj)
+
+    return modified_commits
+
 CSS_STYLES = """
         :root {{
             --bg-color: #f4f4f9;
@@ -1086,9 +1241,9 @@ split_html_template = """<!DOCTYPE html>
 </html>
 """
 
-def main():
+def build_parser():
     parser = argparse.ArgumentParser(description="Generate kernel review report.")
-    parser.add_argument("--list", required=True, help="Commit list file")
+    parser.add_argument("--list", help="Commit list file")
     
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--dataset", help="Database directory")
@@ -1104,9 +1259,17 @@ def main():
     parser.add_argument("--output", default="report.html", help="Output HTML file")
     parser.add_argument("--show-review-time", action="store_true", help="Show review time column in the table by default")
     parser.add_argument("--single-page", action="store_true", help="Generate a single static HTML page (old behavior)")
-    parser.add_argument("--update", help="Only update review entries modified in the given git commit range")
-    
+    parser.add_argument("--update", action="extend", nargs="+", help="Only update review entries modified in the given git commit range (e.g. ID1..ID2), commit list file, or list of commit IDs")
+    parser.add_argument("--update-list", action="extend", nargs="+", help="Commit list file or list of commits to update (alias for --update)")
+    return parser
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
+
+    if not args.list and not args.update and not getattr(args, 'update_list', None):
+        print("Error: Either --list or --update must be specified.")
+        sys.exit(1)
 
     # Parse branch links if provided
     branch_links = {}
@@ -1123,14 +1286,19 @@ def main():
 
     # 1. Parse commit list
     commits = []
-    with open(args.list, "r") as f:
-        for line in f:
-            parts = line.strip().split(None, 1)
-            if len(parts) < 1:
-                continue
-            commit_id = parts[0]
-            subject = parts[1] if len(parts) > 1 else ""
-            commits.append({"id": commit_id, "subject": subject})
+    if args.list:
+        try:
+            with open(args.list, "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.strip().split(None, 1)
+                    if len(parts) < 1:
+                        continue
+                    commit_id = parts[0]
+                    subject = parts[1] if len(parts) > 1 else ""
+                    commits.append({"id": commit_id, "subject": subject})
+        except Exception as e:
+            print(f"Error: Could not read commit list file '{args.list}': {e}")
+            sys.exit(1)
 
     # 2. Collect review data
     processed_data = []
@@ -1189,41 +1357,32 @@ def main():
             dataset_sources[model_name] = model_path
             model_name_to_dir[model_name] = model_dir_name
 
-    modified_commits = set()
+    update_specs = []
     if args.update:
-        import git
-        update_repo = None
-        if args.git:
-            update_repo = repo
-        elif args.dataset:
-            try:
-                update_repo = git.Repo(args.dataset, search_parent_directories=True)
-            except Exception as e:
-                print(f"Error: Could not open git repository for dataset at '{args.dataset}': {e}")
-                sys.exit(1)
-        
-        if update_repo is None:
-            print("Error: Git repository for the dataset is not available.")
-            sys.exit(1)
+        if isinstance(args.update, str):
+            update_specs.append(args.update)
+        else:
+            update_specs.extend(args.update)
+    if getattr(args, 'update_list', None):
+        if isinstance(args.update_list, str):
+            update_specs.append(args.update_list)
+        else:
+            update_specs.extend(args.update_list)
 
-        try:
-            diff_output = update_repo.git.diff(args.update, name_only=True)
-            modified_files = diff_output.strip().splitlines()
-        except Exception as e:
-            print(f"Error: Failed to get diff for range '{args.update}': {e}")
-            sys.exit(1)
+    modified_commits = set()
+    if update_specs:
+        modified_commits = process_update_spec(
+            update_specs,
+            args.model,
+            dataset_sources=dataset_sources,
+            repo=repo,
+            dataset=args.dataset,
+            commits=commits
+        )
 
-        for fpath in modified_files:
-            normalized = fpath.replace('\\', '/')
-            parts = normalized.split('/')
-            for i in range(2, len(parts)):
-                commit_id_candidate = parts[i]
-                if len(commit_id_candidate) == 40 and all(c in "0123456789abcdefABCDEF" for c in commit_id_candidate):
-                    prefix_candidate = parts[i-1]
-                    if len(prefix_candidate) == 2 and commit_id_candidate.startswith(prefix_candidate):
-                        model_dir_candidate = parts[i-2]
-                        if model_dir_candidate in args.model:
-                            modified_commits.add((model_dir_candidate, commit_id_candidate.lower()))
+    if not commits:
+        print("Error: No commits to process.")
+        sys.exit(1)
 
     target_repo = None
     if args.target_git:
@@ -1262,6 +1421,8 @@ def main():
                                 committer = f"{committer_name} <{committer_email}>"
                             else:
                                 committer = committer_name
+                            if not commit["subject"] and getattr(git_commit_obj, "summary", None):
+                                commit["subject"] = git_commit_obj.summary
                         except Exception:
                             pass
 
@@ -1273,6 +1434,8 @@ def main():
                             data["metadata"]["author"] = committer
                         if "author" in data["metadata"]:
                             authors.add(data["metadata"]["author"])
+                        if not commit["subject"] and data["metadata"].get("subject"):
+                            commit["subject"] = data["metadata"]["subject"]
 
                     if committer and "inline" in data:
                         if data.get("inline_is_json"):
@@ -2549,7 +2712,7 @@ def main():
             for model_name, review in item["reviews"].items():
                 model_dir_name = model_name_to_dir[model_name]
                 
-                if args.update and (model_dir_name, full_id.lower()) not in modified_commits:
+                if update_specs and (model_dir_name, full_id.lower()) not in modified_commits and full_id.lower() not in modified_commits and item["id"].lower() not in modified_commits:
                     continue
                 
                 split_dir = os.path.join(output_dir, "reviews", model_dir_name, prefix, full_id)

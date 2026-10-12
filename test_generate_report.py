@@ -1,7 +1,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import json
+import os
 import re
+import tempfile
 
 # Import the module under test
 import generate_report
@@ -350,6 +352,94 @@ class TestPartialUpdateMode(unittest.TestCase):
         self.assertEqual(len(modified_commits), 2)
         self.assertIn(("gemma-4", "27bff05802f55fb805a5fe10b80d37f4fddb9729"), modified_commits)
         self.assertIn(("qwen3.6-q4", "abcdef1234567890abcdef1234567890abcdef12"), modified_commits)
+
+    def test_build_parser_update_options(self):
+        """Test build_parser with different update options."""
+        parser = generate_report.build_parser()
+
+        # Test git range
+        args = parser.parse_args(['--dataset', 'kreviews', '--model', 'gemma-4', '--update', 'HEAD~3..HEAD'])
+        self.assertEqual(args.update, ['HEAD~3..HEAD'])
+
+        # Test commit list file
+        args = parser.parse_args(['--dataset', 'kreviews', '--model', 'gemma-4', '--update', 'test/list-test'])
+        self.assertEqual(args.update, ['test/list-test'])
+
+        # Test multiple commit IDs
+        args = parser.parse_args(['--dataset', 'kreviews', '--model', 'gemma-4', '--update', 'id1', 'id2'])
+        self.assertEqual(args.update, ['id1', 'id2'])
+
+        # Test --update-list
+        args = parser.parse_args(['--dataset', 'kreviews', '--model', 'gemma-4', '--update-list', 'update.list'])
+        self.assertEqual(args.update_list, ['update.list'])
+
+    def test_process_update_spec_with_list_file(self):
+        """Test processing update spec when passing a commit list file."""
+        with tempfile.NamedTemporaryFile("w+", delete=False) as f:
+            f.write("# A comment\n")
+            f.write("27bff05802f55fb805a5fe10b80d37f4fddb9729 ipv6: test subject\n")
+            f.write("e859e84153ff427552ba831f4a0b2a3e71e50b77\n")
+            tmp_path = f.name
+
+        try:
+            commits = [{"id": "27bff05802f55fb805a5fe10b80d37f4fddb9729", "subject": ""}]
+            models = ["gemma-4", "qwen3.6"]
+            modified = generate_report.process_update_spec([tmp_path], models, commits=commits)
+
+            # Both models should be marked for regeneration for both commits
+            self.assertIn(("gemma-4", "27bff05802f55fb805a5fe10b80d37f4fddb9729"), modified)
+            self.assertIn(("qwen3.6", "27bff05802f55fb805a5fe10b80d37f4fddb9729"), modified)
+            self.assertIn(("gemma-4", "e859e84153ff427552ba831f4a0b2a3e71e50b77"), modified)
+            self.assertIn(("qwen3.6", "e859e84153ff427552ba831f4a0b2a3e71e50b77"), modified)
+
+            # The newly added commit should be in commits
+            self.assertEqual(len(commits), 2)
+            self.assertEqual(commits[0]["subject"], "ipv6: test subject")
+            self.assertEqual(commits[1]["id"], "e859e84153ff427552ba831f4a0b2a3e71e50b77")
+        finally:
+            os.remove(tmp_path)
+
+    def test_process_update_spec_with_commit_ids(self):
+        """Test processing update spec when passing direct commit IDs."""
+        models = ["gemma-4"]
+        commits = []
+
+        # Test space-separated string of IDs
+        spec = ["27bff05802f55fb805a5fe10b80d37f4fddb9729 e859e84153ff427552ba831f4a0b2a3e71e50b77"]
+        modified = generate_report.process_update_spec(spec, models, commits=commits)
+        self.assertIn(("gemma-4", "27bff05802f55fb805a5fe10b80d37f4fddb9729"), modified)
+        self.assertIn(("gemma-4", "e859e84153ff427552ba831f4a0b2a3e71e50b77"), modified)
+        self.assertEqual(len(commits), 2)
+
+        # Test comma-separated string
+        commits_comma = []
+        spec_comma = ["27bff05802f55fb805a5fe10b80d37f4fddb9729,e859e84153ff427552ba831f4a0b2a3e71e50b77"]
+        modified_comma = generate_report.process_update_spec(spec_comma, models, commits=commits_comma)
+        self.assertIn(("gemma-4", "27bff05802f55fb805a5fe10b80d37f4fddb9729"), modified_comma)
+        self.assertIn(("gemma-4", "e859e84153ff427552ba831f4a0b2a3e71e50b77"), modified_comma)
+        self.assertEqual(len(commits_comma), 2)
+
+    def test_process_update_spec_with_git_range(self):
+        """Test processing update spec when passing a git revision range."""
+        mock_repo = MagicMock()
+        mock_repo.git.diff.return_value = (
+            "gemma-4/27/27bff05802f55fb805a5fe10b80d37f4fddb9729/review-metadata.json\n"
+        )
+        models = ["gemma-4", "qwen3.6"]
+        commits = [{"id": "27bff05802f55fb805a5fe10b80d37f4fddb9729", "subject": ""}]
+        modified = generate_report.process_update_spec(["HEAD~1..HEAD"], models, repo=mock_repo, commits=commits)
+
+        mock_repo.git.diff.assert_called_once_with("HEAD~1..HEAD", name_only=True)
+        self.assertIn(("gemma-4", "27bff05802f55fb805a5fe10b80d37f4fddb9729"), modified)
+        # qwen3.6 was not modified in git diff
+        self.assertNotIn(("qwen3.6", "27bff05802f55fb805a5fe10b80d37f4fddb9729"), modified)
+
+    @patch("builtins.print")
+    def test_process_update_spec_missing_file_exits(self, mock_print):
+        """Test that passing a non-existent file path causes SystemExit."""
+        with self.assertRaises(SystemExit):
+            generate_report.process_update_spec(["nonexistent_commits.list"], ["gemma-4"])
+        mock_print.assert_called_with("Error: Update file 'nonexistent_commits.list' not found.")
 
 if __name__ == "__main__":
     unittest.main()
