@@ -441,5 +441,166 @@ class TestPartialUpdateMode(unittest.TestCase):
             generate_report.process_update_spec(["nonexistent_commits.list"], ["gemma-4"])
         mock_print.assert_called_with("Error: Update file 'nonexistent_commits.list' not found.")
 
+class TestIssuesFixedSupport(unittest.TestCase):
+    @patch("os.path.exists")
+    @patch("builtins.open")
+    def test_get_review_data_issues_fixed_from_metadata(self, mock_open, mock_exists):
+        """Test that issues-fixed in review-metadata.json is preserved."""
+        mock_exists.side_effect = lambda path: "review-metadata.json" in path
+        mock_file = MagicMock()
+        mock_file.__enter__.return_value = mock_file
+        mock_file.read.return_value = '{"author": "Jane", "issues-found": 2, "issues-fixed": 1}'
+        mock_open.return_value = mock_file
+
+        result = generate_report.get_review_data("/fake/dataset", "1234567890abcdef1234567890abcdef12345678")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["issues-found"], 2)
+        self.assertEqual(result["metadata"]["issues-fixed"], 1)
+
+    @patch("os.path.exists")
+    @patch("builtins.open")
+    def test_get_review_data_issues_fixed_from_verified_result(self, mock_open, mock_exists):
+        """Test that issues-fixed is populated from verified-result.json if missing in metadata."""
+        mock_exists.side_effect = lambda path: "review-metadata.json" in path or "verified-result.json" in path
+        def mock_open_side_effect(path, mode="r", encoding=None):
+            m = MagicMock()
+            m.__enter__.return_value = m
+            if "review-metadata.json" in path:
+                m.read.return_value = '{"author": "Jane", "issues-found": 1}'
+            elif "verified-result.json" in path:
+                m.read.return_value = '{"schema-version": 2, "issues-fixed": 1, "future-fix": "5bf62f727580"}'
+            return m
+        mock_open.side_effect = mock_open_side_effect
+
+        result = generate_report.get_review_data("/fake/dataset", "1234567890abcdef1234567890abcdef12345678")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["issues-fixed"], 1)
+
+    @patch("os.path.exists")
+    @patch("builtins.open")
+    def test_get_review_data_issues_fixed_from_inline_json(self, mock_open, mock_exists):
+        """Test that issues-fixed is populated from review-inline.json if missing in metadata."""
+        mock_exists.side_effect = lambda path: "review-metadata.json" in path or "review-inline.json" in path
+        def mock_open_side_effect(path, mode="r", encoding=None):
+            m = MagicMock()
+            m.__enter__.return_value = m
+            if "review-metadata.json" in path:
+                m.read.return_value = '{"author": "Jane", "issues-found": 3}'
+            elif "review-inline.json" in path:
+                m.read.return_value = '{"commit": "12345", "issues-fixed": 2, "findings": []}'
+            return m
+        mock_open.side_effect = mock_open_side_effect
+
+        result = generate_report.get_review_data("/fake/dataset", "1234567890abcdef1234567890abcdef12345678")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["issues-fixed"], 2)
+
+    @patch("os.path.exists")
+    @patch("builtins.open")
+    def test_get_review_data_issues_fixed_from_inline_txt(self, mock_open, mock_exists):
+        """Test that issues-fixed is populated from review-inline.txt header if missing in metadata."""
+        mock_exists.side_effect = lambda path: "review-metadata.json" in path or "review-inline.txt" in path
+        def mock_open_side_effect(path, mode="r", encoding=None):
+            m = MagicMock()
+            m.__enter__.return_value = m
+            if "review-metadata.json" in path:
+                m.read.return_value = '{"author": "Jane", "issues-found": 3}'
+            elif "review-inline.txt" in path:
+                m.read.return_value = "Author: Jane\nIssues-fixed: 3\nFix-status: fixed - 5bf62f727580\n"
+            return m
+        mock_open.side_effect = mock_open_side_effect
+
+        result = generate_report.get_review_data("/fake/dataset", "1234567890abcdef1234567890abcdef12345678")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["metadata"]["issues-fixed"], 3)
+
+    def test_css_styles_contain_fix_status(self):
+        """Test that CSS_STYLES contains the required fix status badge styles."""
+        self.assertIn(".fix-status-badge", generate_report.CSS_STYLES)
+        self.assertIn(".fix-status-fixed", generate_report.CSS_STYLES)
+        self.assertIn(".fix-status-fixed-upstream", generate_report.CSS_STYLES)
+        self.assertIn(".fix-status-not-fixed", generate_report.CSS_STYLES)
+        self.assertIn(".severity-all-fixed", generate_report.CSS_STYLES)
+
+    def test_html_templates_contain_filter_and_fix_handling(self):
+        """Test that split_html_template and generated main HTML contain filter & fix-status handlers."""
+        # split_html_template
+        self.assertIn("formatFixLinks", generate_report.split_html_template)
+        self.assertIn("fix-status-badge", generate_report.split_html_template)
+        self.assertIn("Issues-fixed:", generate_report.split_html_template)
+
+        # End-to-end report generation test
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            commit_id = "1234567890abcdef1234567890abcdef12345678"
+            model_base = os.path.join(tmp_dir, "test-model")
+            model_dir = os.path.join(model_base, commit_id[:2], commit_id)
+            os.makedirs(model_dir, exist_ok=True)
+
+            with open(os.path.join(model_base, "description"), "w") as f:
+                f.write("Test Model Description\n")
+
+            with open(os.path.join(model_dir, "review-metadata.json"), "w") as f:
+                json.dump({
+                    "author": "Test Author",
+                    "subject": "Test Subject",
+                    "issues-found": 1,
+                    "issues-fixed": 1,
+                    "issue-severity-score": "high"
+                }, f)
+
+            with open(os.path.join(model_dir, "review-inline.json"), "w") as f:
+                json.dump({
+                    "commit": commit_id,
+                    "issues-fixed": 1,
+                    "findings": [{
+                        "category": "Bug",
+                        "type": "Issue",
+                        "severity": "high",
+                        "fix-status": "fixed",
+                        "future-fix": "5bf62f727580"
+                    }]
+                }, f)
+
+            with open(os.path.join(model_dir, "verified-result.json"), "w") as f:
+                json.dump({
+                    "schema-version": 2,
+                    "issues-fixed": 1,
+                    "future-fix": "5bf62f727580",
+                    "findings": [{
+                        "status": "confirmed",
+                        "fix-status": "fixed",
+                        "future-fix": "5bf62f727580"
+                    }]
+                }, f)
+
+            list_file = os.path.join(tmp_dir, "commits.list")
+            with open(list_file, "w") as f:
+                f.write(f"{commit_id} Test Subject\n")
+
+            out_html = os.path.join(tmp_dir, "report.html")
+
+            with patch("sys.argv", ["generate_report.py", "--dataset", tmp_dir, "--model", "test-model", "--list", list_file, "--output", out_html]):
+                generate_report.main()
+
+            self.assertTrue(os.path.exists(out_html))
+            with open(out_html, "r") as f:
+                html_content = f.read()
+
+            self.assertIn("openIssuesOnly", html_content)
+            self.assertIn("Open issues only", html_content)
+            self.assertIn("formatFixLinks", html_content)
+            self.assertIn("fix-status-badge", html_content)
+            self.assertIn("severity-all-fixed", html_content)
+
+            # Check that split HTML review was also created and contains fix status handlers
+            split_review_path = os.path.join(tmp_dir, "reviews", "test-model", commit_id[:2], commit_id, "review.html")
+            self.assertTrue(os.path.exists(split_review_path))
+            with open(split_review_path, "r") as f:
+                split_content = f.read()
+
+            self.assertIn("fix-status-badge", split_content)
+            self.assertIn("formatFixLinks", split_content)
+
 if __name__ == "__main__":
     unittest.main()
+

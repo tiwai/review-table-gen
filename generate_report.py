@@ -81,21 +81,33 @@ def get_review_data(dataset, full_id):
     inline_text = get_blob_content("review-inline.txt")
     
     downstream_only = None
+    issues_fixed = None
     if inline_text:
-        # Parse downstream-only findings
+        # Parse downstream-only findings and issues-fixed
         for line in inline_text.splitlines():
             if line.startswith("Findings-downstream-only:"):
                 try:
-                    downstream_only = int(line.split(":")[1].strip())
+                    downstream_only = int(line.split(":", 1)[1].strip())
                 except:
                     pass
-                break
+            elif line.startswith("Issues-fixed:"):
+                try:
+                    issues_fixed = int(line.split(":", 1)[1].strip())
+                except:
+                    pass
 
     if inline_json:
         data["inline"] = inline_json
         data["inline_is_json"] = True
         if downstream_only is not None:
             data["downstream_only"] = downstream_only
+        if issues_fixed is None:
+            try:
+                ij = json.loads(inline_json)
+                if isinstance(ij, dict) and "issues-fixed" in ij:
+                    issues_fixed = ij["issues-fixed"]
+            except:
+                pass
     elif inline_text:
         data["inline"] = inline_text
         data["inline_is_json"] = False
@@ -109,6 +121,17 @@ def get_review_data(dataset, full_id):
     verified_result_content = get_blob_content("verified-result.json")
     if verified_result_content:
         data["verified_result"] = verified_result_content
+        if issues_fixed is None:
+            try:
+                vj = json.loads(verified_result_content)
+                if isinstance(vj, dict) and "issues-fixed" in vj:
+                    issues_fixed = vj["issues-fixed"]
+            except:
+                pass
+
+    if "metadata" in data and isinstance(data["metadata"], dict):
+        if "issues-fixed" not in data["metadata"] and issues_fixed is not None:
+            data["metadata"]["issues-fixed"] = issues_fixed
 
     fix_patches_content = get_blob_content("review-fix-patches.diff")
     if fix_patches_content:
@@ -447,6 +470,11 @@ CSS_STYLES = """
         .re-verified-rejected {{ background-color: var(--re-verified-rejected-bg); color: var(--re-verified-rejected-text); }}
         .re-verified-pruned {{ background-color: var(--re-verified-rejected-bg); color: var(--re-verified-rejected-text); }}
         .re-verified-unknown {{ background-color: var(--re-verified-unknown-bg); color: var(--re-verified-unknown-text); }}
+        .fix-status-badge {{ display: inline-block; padding: 2px 8px; font-size: 12px; font-weight: bold; border-radius: 4px; text-transform: uppercase; }}
+        .fix-status-fixed {{ background-color: var(--re-verified-rejected-bg); color: var(--re-verified-rejected-text); }}
+        .fix-status-fixed-upstream {{ background-color: var(--diff-header-bg); color: var(--diff-header-text); }}
+        .fix-status-not-fixed {{ background-color: var(--re-verified-confirmed-bg); color: var(--re-verified-confirmed-text); }}
+        .severity-all-fixed {{ opacity: 0.75; }}
         a {{ color: var(--link-color); }}
         .pagination {{ margin: 20px 0; display: flex; gap: 5px; }}
         .pagination button {{ padding: 5px 10px; cursor: pointer; border: 1px solid var(--table-border); background: var(--table-bg); color: var(--text-color); }}
@@ -673,6 +701,27 @@ split_html_template = """<!DOCTYPE html>
                 container.style.display = 'none';
                 if (arrow) arrow.innerText = '▶';
             }
+        function formatFixLinks(text) {
+            if (!text) return "";
+            let safe = escapeHtml(text);
+            safe = safe.replace(/suse-commit\\s+([0-9a-f]{7,40})/gi, function(m, sha) {
+                return `suse-commit <a href="${ksBaseUrl}${sha}" target="_blank" class="review-link">${sha}</a>`;
+            });
+            safe = safe.replace(/([0-9a-f]{7,40})(\\s*\\(\\s*upstream\\s*\\))/gi, function(m, sha, rest) {
+                return `<a href="https://github.com/torvalds/linux/commit/${sha}" target="_blank" class="review-link">${sha}</a>${rest}`;
+            });
+            safe = safe.replace(/(upstream(?:\\s+commit|\\s+in)?\\s+)([0-9a-f]{7,40})/gi, function(m, prefix, sha) {
+                return `${prefix}<a href="https://github.com/torvalds/linux/commit/${sha}" target="_blank" class="review-link">${sha}</a>`;
+            });
+            const parts = safe.split(/(<[^>]+>)/g);
+            for (let i = 0; i < parts.length; i++) {
+                if (parts[i].startsWith('<') && parts[i].endsWith('>')) continue;
+                if (i > 0 && parts[i - 1].toLowerCase().startsWith('<a ')) continue;
+                parts[i] = parts[i].replace(/\\b([0-9a-f]{7,40})\\b/gi, function(m, sha) {
+                    return `<a href="${commitBaseUrl}${sha}" target="_blank" class="review-link">${sha}</a>`;
+                });
+            }
+            return parts.join('');
         }
 
         function formatMarkdown(text, isInline) {
@@ -755,6 +804,7 @@ split_html_template = """<!DOCTYPE html>
                         'Upstream-subject: ',
                         'Findings-in-upstream: ',
                         'Findings-downstream-only: ',
+                        'Issues-fixed: ',
                         'Review-time: ',
                         'Review-model: ',
                         'Input-tokens: ',
@@ -763,6 +813,28 @@ split_html_template = """<!DOCTYPE html>
                     ];
                     if (metaPrefixes.some(p => trimmed.startsWith(p))) {
                         return `<span class="review-metadata">${content}</span>\\n`;
+                    }
+
+                    if (trimmed.startsWith('Fix-status: ')) {
+                        const statusPart = trimmed.substring(12).trim();
+                        let statusName = statusPart;
+                        let fixDetail = "";
+                        const dashIdx = statusPart.indexOf(' - ');
+                        if (dashIdx !== -1) {
+                            statusName = statusPart.substring(0, dashIdx).trim();
+                            fixDetail = statusPart.substring(dashIdx + 3).trim();
+                        }
+                        const statusLower = statusName.toLowerCase();
+                        let badgeClass = 'fix-status-not-fixed';
+                        if (statusLower === 'fixed') badgeClass = 'fix-status-fixed';
+                        else if (statusLower === 'fixed-upstream') badgeClass = 'fix-status-fixed-upstream';
+                        
+                        let fixHtml = `<span class="review-metadata"><strong>Fix-status:</strong> <span class="fix-status-badge ${badgeClass}">${escapeHtml(statusName)}</span>`;
+                        if (fixDetail) {
+                            fixHtml += ` &mdash; ${formatFixLinks(fixDetail)}`;
+                        }
+                        fixHtml += `</span>\\n`;
+                        return fixHtml;
                     }
 
                     // Subject detection: after Author: and between blank lines
@@ -829,10 +901,21 @@ split_html_template = """<!DOCTYPE html>
 
                 // Define main metadata fields to display in a summary card/table
                 const mainFields = {
+                    'schema-version': 'Schema Version',
+                    'verdict': 'Verdict',
+                    'verification_status': 'Verification Status',
+                    'verified-by': 'Verified By',
                     're-verified-by': 'Re-Verified By',
+                    'verified-date': 'Verified Date',
                     're-verified-date': 'Re-Verified Date',
+                    'original-findings': 'Original Findings',
+                    'issues-found': 'Issues Found',
+                    'issues-pruned': 'Issues Pruned',
+                    'issues-fixed': 'Issues Fixed',
+                    'future-fix': 'Future Fix',
+                    'summary': 'Summary',
                     're-verification-summary': 'Re-Verification Summary',
-                    'verification_status': 'Verification Status'
+                    'notes': 'Notes'
                 };
 
                 let hasMeta = false;
@@ -841,11 +924,15 @@ split_html_template = """<!DOCTYPE html>
                 metaHtml += '<table style="width:100%; border-collapse: collapse; margin-bottom: 0;">';
 
                 for (let [key, label] of Object.entries(mainFields)) {
-                    if (data[key] !== undefined) {
+                    if (data[key] !== undefined && data[key] !== null) {
                         hasMeta = true;
+                        let valHtml = escapeHtml(data[key]);
+                        if (key === 'future-fix') {
+                            valHtml = formatFixLinks(data[key]);
+                        }
                         metaHtml += `<tr style="border-bottom: 1px solid var(--table-border);">`;
                         metaHtml += `<td style="font-weight: bold; width: 30%; padding: 8px 0; border: none;">${escapeHtml(label)}:</td>`;
-                        metaHtml += `<td style="padding: 8px 0; border: none;">${escapeHtml(data[key])}</td>`;
+                        metaHtml += `<td style="padding: 8px 0; border: none;">${valHtml}</td>`;
                         metaHtml += `</tr>`;
                     }
                 }
@@ -870,8 +957,10 @@ split_html_template = """<!DOCTYPE html>
                 if (data.findings && Array.isArray(data.findings) && data.findings.length > 0) {
                     html += '<h3 style="margin-top: 20px; margin-bottom: 10px;">Findings Re-Verification</h3>';
                     data.findings.forEach((f, idx) => {
-                        const status = f['re-verification-status'] || '';
-                        const comment = f['re-verification-comment'] || '';
+                        const status = f['re-verification-status'] || f['status'] || '';
+                        const comment = f['re-verification-comment'] || f['reason'] || '';
+                        const fixStatus = (f['fix-status'] || '').toLowerCase();
+                        const futureFix = f['future-fix'] || '';
                         const statusLower = status.toLowerCase();
                         
                         let badgeClass = 're-verified-unknown';
@@ -881,15 +970,26 @@ split_html_template = """<!DOCTYPE html>
                         html += `<div style="border: 1px solid var(--table-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin-bottom: 12px; background: var(--table-bg);">`;
                         html += `<div style="font-weight: bold; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">`;
                         html += `<span>Finding ${idx + 1}</span>`;
+                        html += `<div>`;
                         if (status) {
                             html += `<span class="re-verified-badge ${badgeClass}" style="font-size: 12px; padding: 2px 6px;">${escapeHtml(status)}</span>`;
                         }
-                        html += `</div>`;
+                        if (fixStatus) {
+                            let fixBadgeClass = 'fix-status-not-fixed';
+                            if (fixStatus === 'fixed') fixBadgeClass = 'fix-status-fixed';
+                            else if (fixStatus === 'fixed-upstream') fixBadgeClass = 'fix-status-fixed-upstream';
+                            html += ` <span class="fix-status-badge ${fixBadgeClass}" style="font-size: 12px; padding: 2px 6px; margin-left: 6px;">${escapeHtml(fixStatus)}</span>`;
+                        }
+                        html += `</div></div>`;
                         
+                        if (futureFix) {
+                            html += `<div style="margin-top: 6px; margin-bottom: 6px;"><span class="finding-label" style="font-weight: bold;">Future Fix:</span> ${formatFixLinks(futureFix)}</div>`;
+                        }
+
                         // Render any other custom fields inside finding
                         let otherFindingFields = '';
                         for (let [k, v] of Object.entries(f)) {
-                            if (k !== 're-verification-status' && k !== 're-verification-comment' && typeof v !== 'object' && v !== null) {
+                            if (k !== 're-verification-status' && k !== 'status' && k !== 're-verification-comment' && k !== 'reason' && k !== 'fix-status' && k !== 'future-fix' && typeof v !== 'object' && v !== null) {
                                 otherFindingFields += `<div><strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)}</div>`;
                             }
                         }
@@ -934,9 +1034,10 @@ split_html_template = """<!DOCTYPE html>
 
                 // Re-verification banner
                 if (verifiedData) {
-                    const verifiedBy = verifiedData['re-verified-by'] || '';
-                    const verifiedDate = verifiedData['re-verified-date'] || '';
-                    const summary = verifiedData['re-verification-summary'] || '';
+                    const verifiedBy = verifiedData['re-verified-by'] || verifiedData['verified-by'] || '';
+                    const verifiedDate = verifiedData['re-verified-date'] || verifiedData['verified-date'] || '';
+                    const summary = verifiedData['re-verification-summary'] || verifiedData['summary'] || '';
+                    const topFutureFix = verifiedData['future-fix'] || '';
                     html += `<div class="re-verified-banner">`;
                     html += `<div style="font-weight: bold; margin-bottom: 5px;">`;
                     html += `Re-Verified`;
@@ -945,6 +1046,9 @@ split_html_template = """<!DOCTYPE html>
                     html += `</div>`;
                     if (summary) {
                         html += `<div style="font-size: 0.95em;">${escapeHtml(summary)}</div>`;
+                    }
+                    if (topFutureFix) {
+                        html += `<div style="font-size: 0.95em; margin-top: 5px;"><strong>Future Fix:</strong> ${formatFixLinks(topFutureFix)}</div>`;
                     }
                     html += `</div>`;
                 }
@@ -967,6 +1071,11 @@ split_html_template = """<!DOCTYPE html>
                     html += `<div><span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${data['upstream-commit']}" target="_blank" class="review-link">${escapeHtml(data['upstream-commit'])}</a></span></div>`;
                 } else if (data['upstream_commit']) {
                     html += `<div><span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${data['upstream_commit']}" target="_blank" class="review-link">${escapeHtml(data['upstream_commit'])}</a></span></div>`;
+                }
+                if (data['issues-fixed'] !== undefined) {
+                    html += `<div><span class="review-metadata">Issues-fixed: ${escapeHtml(data['issues-fixed'])}</span></div>`;
+                } else if (verifiedData && verifiedData['issues-fixed'] !== undefined) {
+                    html += `<div><span class="review-metadata">Issues-fixed: ${escapeHtml(verifiedData['issues-fixed'])}</span></div>`;
                 }
                 
                 // Backport info
@@ -1025,8 +1134,10 @@ split_html_template = """<!DOCTYPE html>
                     data.findings.forEach((f, idx) => {
                         // Merge re-verification fields from verifiedData if available
                         const vf = (verifiedData && verifiedData.findings && verifiedData.findings[idx]) || {};
-                        const reStatus = (vf['re-verification-status'] || f['re-verification-status'] || '').toLowerCase();
-                        const reComment = vf['re-verification-comment'] || f['re-verification-comment'] || '';
+                        const reStatus = (vf['re-verification-status'] || vf['status'] || f['re-verification-status'] || f['status'] || '').toLowerCase();
+                        const reComment = vf['re-verification-comment'] || vf['reason'] || f['re-verification-comment'] || f['reason'] || f['comment'] || '';
+                        const fixStatus = (vf['fix-status'] || f['fix-status'] || '').toLowerCase();
+                        const futureFix = vf['future-fix'] || f['future-fix'] || '';
 
                         const sevClass = f.severity ? `finding-${f.severity.toString().toLowerCase()}` : "";
                         html += `<div class="finding-item ${sevClass}" style="margin-top: 10px;">`;
@@ -1035,6 +1146,10 @@ split_html_template = """<!DOCTYPE html>
                             const reClass = reStatus === 'confirmed' ? 're-verified-confirmed' : (reStatus === 'rejected' || reStatus === 'pruned') ? `re-verified-${reStatus}` : 're-verified-unknown';
                             html += ` <span class="re-verified-badge ${reClass}">${escapeHtml(reStatus)}</span>`;
                         }
+                        if (fixStatus) {
+                            const fixClass = fixStatus === 'fixed' ? 'fix-status-fixed' : (fixStatus === 'fixed-upstream' ? 'fix-status-fixed-upstream' : 'fix-status-not-fixed');
+                            html += ` <span class="fix-status-badge ${fixClass}">${escapeHtml(fixStatus)}</span>`;
+                        }
                         html += `</div>`;
                         const sev = (f.severity || "N/A").toString().toLowerCase();
                         const conf = (f.confidence || "N/A").toString().toLowerCase();
@@ -1042,6 +1157,9 @@ split_html_template = """<!DOCTYPE html>
                         const confBadgeClass = ["high", "medium", "low"].includes(conf) ? `finding-badge-${conf}` : "finding-badge-unknown";
                         html += `<div><span class="finding-label">Severity:</span> <span class="finding-badge ${sevBadgeClass}">${escapeHtml(f.severity || "N/A")}</span></div>`;
                         html += `<div><span class="finding-label">Confidence:</span> <span class="finding-badge ${confBadgeClass}">${escapeHtml(f.confidence || "N/A")}</span></div>`;
+                        if (futureFix) {
+                            html += `<div style="margin-top: 5px;"><span class="finding-label">Future Fix:</span> ${formatFixLinks(futureFix)}</div>`;
+                        }
                         html += `<div style="margin-top:5px;"><strong>Message:</strong></div>`;
                         html += `<div class="finding-message">${formatMarkdown(f.message || "", false)}</div>`;
                         if (f.evidence) {
@@ -1493,6 +1611,10 @@ def main():
         <label for="subjectSearch" style="margin-left: 20px;">Search Subject:</label>
         <input type="text" id="subjectSearch" oninput="applyFilter()" placeholder="Search..." style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border); padding: 4px;">
 
+        <label for="openIssuesOnly" style="margin-left: 20px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="openIssuesOnly" onchange="applyFilter()" style="cursor: pointer; vertical-align: middle;"> <span style="vertical-align: middle;">Open issues only</span>
+        </label>
+
         {branch_switcher_html}
     </div>
 
@@ -1805,6 +1927,19 @@ def main():
                 }}
             }}
 
+            let savedOpenIssuesOnly = null;
+            try {{
+                savedOpenIssuesOnly = localStorage.getItem('openIssuesOnly');
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
+            const urlOpenOnly = urlParams.get('open_only') || urlParams.get('open');
+            const initialOpenIssuesOnly = urlOpenOnly !== null ? (urlOpenOnly === 'true' || urlOpenOnly === '1') : (savedOpenIssuesOnly === 'true');
+            const openOnlyCheckbox = document.getElementById('openIssuesOnly');
+            if (openOnlyCheckbox) {{
+                openOnlyCheckbox.checked = initialOpenIssuesOnly;
+            }}
+
             // Re-apply theme to ensure all instances are synchronized
             setTheme(document.documentElement.getAttribute('data-theme') || savedTheme);
 
@@ -1921,10 +2056,12 @@ def main():
             const author = document.getElementById('authorFilter').value;
             const severityThreshold = document.getElementById('severityFilter').value;
             const searchText = document.getElementById('subjectSearch').value.toLowerCase();
+            const openIssuesOnly = document.getElementById('openIssuesOnly') ? document.getElementById('openIssuesOnly').checked : false;
 
             try {{
                 localStorage.setItem('authorFilter', author);
                 localStorage.setItem('severityFilter', severityThreshold);
+                localStorage.setItem('openIssuesOnly', openIssuesOnly ? 'true' : 'false');
             }} catch (e) {{
                 console.warn('localStorage is not available:', e);
             }}
@@ -1946,8 +2083,16 @@ def main():
                     }});
 
                 const matchesSubject = item.subject.toLowerCase().includes(searchText);
+
+                const matchesOpenIssues = !openIssuesOnly || reviews.some(r => {{
+                    if (!r.metadata) return false;
+                    const found = r.metadata['issues-found'] || 0;
+                    const fixed = r.metadata['issues-fixed'];
+                    const open = (fixed !== undefined && fixed !== null) ? Math.max(0, found - fixed) : found;
+                    return open > 0;
+                }});
                 
-                return matchesAuthor && matchesSeverity && matchesSubject;
+                return matchesAuthor && matchesSeverity && matchesSubject && matchesOpenIssues;
             }});
             currentPage = 1;
             renderTable();
@@ -2008,27 +2153,45 @@ def main():
                         const hasVerified = review.verified_result ? " ✓" : "";
                         const verifiedClass = review.verified_result ? "has-verified" : "";
                         const severity = (metadata['issue-severity-score'] || "none").toString().toLowerCase();
-                        const severityClass = `severity-${{severity}}`;
+                        let severityClass = `severity-${{severity}}`;
                         const reviewKey = `${{item.id}}-${{dsName}}`;
                         const visitedClass = visitedReviews.has(reviewKey) ? " visited" : "";
 
-                        let issuesText = `${{metadata['issues-found']}}${{hasPre}}${{hasVerified}}`;
+                        const issuesFound = metadata['issues-found'] || 0;
+                        const issuesFixed = metadata['issues-fixed'];
+                        const hasFixedCheck = (issuesFixed !== undefined && issuesFixed !== null);
+                        const openIssues = hasFixedCheck ? Math.max(0, issuesFound - issuesFixed) : issuesFound;
+                        const isAllFixed = hasFixedCheck && issuesFound > 0 && openIssues === 0;
+
+                        let issuesText = "";
+                        if (hasFixedCheck && issuesFixed > 0) {{
+                            issuesText = `${{openIssues}} (${{issuesFixed}} fixed)${{hasPre}}${{hasVerified}}`;
+                        }} else {{
+                            issuesText = `${{openIssues}}${{hasPre}}${{hasVerified}}`;
+                        }}
+
                         let dsClass = "";
                         if (review.downstream_only) {{
                             issuesText += ` [${{review.downstream_only}}]`;
-                            if (metadata['issues-found'] > 0) {{
+                            if (openIssues > 0) {{
                                 dsClass = "has-downstream";
                             }}
                         }}
 
+                        let severityText = metadata['issue-severity-score'] || "";
+                        if (isAllFixed) {{
+                            severityClass += " severity-all-fixed";
+                            severityText += " (fixed)";
+                        }}
+
                         let clickAction = `onclick="openReview('${{item.id}}', '${{dsName}}')"`;
                         let issuesContent = issuesText;
-                        let severityContent = metadata['issue-severity-score'];
+                        let severityContent = severityText;
 
                         if (review.url) {{
                             clickAction = `onclick="markVisited('${{item.id}}', '${{dsName}}')"`;
                             issuesContent = `<a href="${{review.url}}" class="review-page-link" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{issuesText}}</a>`;
-                            severityContent = `<a href="${{review.url}}" class="review-page-link" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{metadata['issue-severity-score']}}</a>`;
+                            severityContent = `<a href="${{review.url}}" class="review-page-link" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{severityText}}</a>`;
                         }}
 
                         html += `<td class="issues-cell ${{dsClass}} ${{preClass}} ${{verifiedClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesContent}}</td>`;
@@ -2110,6 +2273,27 @@ def main():
                     alert("Invalid page number.");
                 }}
             }}
+        function formatFixLinks(text) {{
+            if (!text) return "";
+            let safe = escapeHtml(text);
+            safe = safe.replace(/suse-commit\\s+([0-9a-f]{{7,40}})/gi, function(m, sha) {{
+                return `suse-commit <a href="${{ksBaseUrl}}${{sha}}" target="_blank" class="review-link">${{sha}}</a>`;
+            }});
+            safe = safe.replace(/([0-9a-f]{{7,40}})(\\s*\\(\\s*upstream\\s*\\))/gi, function(m, sha, rest) {{
+                return `<a href="https://github.com/torvalds/linux/commit/${{sha}}" target="_blank" class="review-link">${{sha}}</a>${{rest}}`;
+            }});
+            safe = safe.replace(/(upstream(?:\\s+commit|\\s+in)?\\s+)([0-9a-f]{{7,40}})/gi, function(m, prefix, sha) {{
+                return `${{prefix}}<a href="https://github.com/torvalds/linux/commit/${{sha}}" target="_blank" class="review-link">${{sha}}</a>`;
+            }});
+            const parts = safe.split(/(<[^>]+>)/g);
+            for (let i = 0; i < parts.length; i++) {{
+                if (parts[i].startsWith('<') && parts[i].endsWith('>')) continue;
+                if (i > 0 && parts[i - 1].toLowerCase().startsWith('<a ')) continue;
+                parts[i] = parts[i].replace(/\\b([0-9a-f]{{7,40}})\\b/gi, function(m, sha) {{
+                    return `<a href="${{commitBaseUrl}}${{sha}}" target="_blank" class="review-link">${{sha}}</a>`;
+                }});
+            }}
+            return parts.join('');
         }}
 
         function formatMarkdown(text, isInline) {{
@@ -2192,6 +2376,7 @@ def main():
                         'Upstream-subject: ',
                         'Findings-in-upstream: ',
                         'Findings-downstream-only: ',
+                        'Issues-fixed: ',
                         'Review-time: ',
                         'Review-model: ',
                         'Input-tokens: ',
@@ -2200,6 +2385,28 @@ def main():
                     ];
                     if (metaPrefixes.some(p => trimmed.startsWith(p))) {{
                         return `<span class="review-metadata">${{content}}</span>\\n`;
+                    }}
+
+                    if (trimmed.startsWith('Fix-status: ')) {{
+                        const statusPart = trimmed.substring(12).trim();
+                        let statusName = statusPart;
+                        let fixDetail = "";
+                        const dashIdx = statusPart.indexOf(' - ');
+                        if (dashIdx !== -1) {{
+                            statusName = statusPart.substring(0, dashIdx).trim();
+                            fixDetail = statusPart.substring(dashIdx + 3).trim();
+                        }}
+                        const statusLower = statusName.toLowerCase();
+                        let badgeClass = 'fix-status-not-fixed';
+                        if (statusLower === 'fixed') badgeClass = 'fix-status-fixed';
+                        else if (statusLower === 'fixed-upstream') badgeClass = 'fix-status-fixed-upstream';
+                        
+                        let fixHtml = `<span class="review-metadata"><strong>Fix-status:</strong> <span class="fix-status-badge ${{badgeClass}}">${{escapeHtml(statusName)}}</span>`;
+                        if (fixDetail) {{
+                            fixHtml += ` &mdash; ${{formatFixLinks(fixDetail)}}`;
+                        }}
+                        fixHtml += `</span>\\n`;
+                        return fixHtml;
                     }}
 
                     // Subject detection: after Author: and between blank lines
@@ -2266,10 +2473,21 @@ def main():
 
                 // Define main metadata fields to display in a summary card/table
                 const mainFields = {{
+                    'schema-version': 'Schema Version',
+                    'verdict': 'Verdict',
+                    'verification_status': 'Verification Status',
+                    'verified-by': 'Verified By',
                     're-verified-by': 'Re-Verified By',
+                    'verified-date': 'Verified Date',
                     're-verified-date': 'Re-Verified Date',
+                    'original-findings': 'Original Findings',
+                    'issues-found': 'Issues Found',
+                    'issues-pruned': 'Issues Pruned',
+                    'issues-fixed': 'Issues Fixed',
+                    'future-fix': 'Future Fix',
+                    'summary': 'Summary',
                     're-verification-summary': 'Re-Verification Summary',
-                    'verification_status': 'Verification Status'
+                    'notes': 'Notes'
                 }};
 
                 let hasMeta = false;
@@ -2278,11 +2496,15 @@ def main():
                 metaHtml += '<table style="width:100%; border-collapse: collapse; margin-bottom: 0;">';
 
                 for (let [key, label] of Object.entries(mainFields)) {{
-                    if (data[key] !== undefined) {{
+                    if (data[key] !== undefined && data[key] !== null) {{
                         hasMeta = true;
+                        let valHtml = escapeHtml(data[key]);
+                        if (key === 'future-fix') {{
+                            valHtml = formatFixLinks(data[key]);
+                        }}
                         metaHtml += `<tr style="border-bottom: 1px solid var(--table-border);">`;
                         metaHtml += `<td style="font-weight: bold; width: 30%; padding: 8px 0; border: none;">${{escapeHtml(label)}}:</td>`;
-                        metaHtml += `<td style="padding: 8px 0; border: none;">${{escapeHtml(data[key])}}</td>`;
+                        metaHtml += `<td style="padding: 8px 0; border: none;">${{valHtml}}</td>`;
                         metaHtml += `</tr>`;
                     }}
                 }}
@@ -2307,8 +2529,10 @@ def main():
                 if (data.findings && Array.isArray(data.findings) && data.findings.length > 0) {{
                     html += '<h3 style="margin-top: 20px; margin-bottom: 10px;">Findings Re-Verification</h3>';
                     data.findings.forEach((f, idx) => {{
-                        const status = f['re-verification-status'] || '';
-                        const comment = f['re-verification-comment'] || '';
+                        const status = f['re-verification-status'] || f['status'] || '';
+                        const comment = f['re-verification-comment'] || f['reason'] || '';
+                        const fixStatus = (f['fix-status'] || '').toLowerCase();
+                        const futureFix = f['future-fix'] || '';
                         const statusLower = status.toLowerCase();
                         
                         let badgeClass = 're-verified-unknown';
@@ -2318,15 +2542,26 @@ def main():
                         html += `<div style="border: 1px solid var(--table-border); border-left: 4px solid var(--btn-bg); padding: 12px; border-radius: 4px; margin-bottom: 12px; background: var(--table-bg);">`;
                         html += `<div style="font-weight: bold; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">`;
                         html += `<span>Finding ${{idx + 1}}</span>`;
+                        html += `<div>`;
                         if (status) {{
                             html += `<span class="re-verified-badge ${{badgeClass}}" style="font-size: 12px; padding: 2px 6px;">${{escapeHtml(status)}}</span>`;
                         }}
-                        html += `</div>`;
+                        if (fixStatus) {{
+                            let fixBadgeClass = 'fix-status-not-fixed';
+                            if (fixStatus === 'fixed') fixBadgeClass = 'fix-status-fixed';
+                            else if (fixStatus === 'fixed-upstream') fixBadgeClass = 'fix-status-fixed-upstream';
+                            html += ` <span class="fix-status-badge ${{fixBadgeClass}}" style="font-size: 12px; padding: 2px 6px; margin-left: 6px;">${{escapeHtml(fixStatus)}}</span>`;
+                        }}
+                        html += `</div></div>`;
                         
+                        if (futureFix) {{
+                            html += `<div style="margin-top: 6px; margin-bottom: 6px;"><span class="finding-label" style="font-weight: bold;">Future Fix:</span> ${{formatFixLinks(futureFix)}}</div>`;
+                        }}
+
                         // Render any other custom fields inside finding
                         let otherFindingFields = '';
                         for (let [k, v] of Object.entries(f)) {{
-                            if (k !== 're-verification-status' && k !== 're-verification-comment' && typeof v !== 'object' && v !== null) {{
+                            if (k !== 're-verification-status' && k !== 'status' && k !== 're-verification-comment' && k !== 'reason' && k !== 'fix-status' && k !== 'future-fix' && typeof v !== 'object' && v !== null) {{
                                 otherFindingFields += `<div><strong>${{escapeHtml(k)}}:</strong> ${{escapeHtml(v)}}</div>`;
                             }}
                         }}
@@ -2371,9 +2606,10 @@ def main():
 
                 // Re-verification banner
                 if (verifiedData) {{
-                    const verifiedBy = verifiedData['re-verified-by'] || '';
-                    const verifiedDate = verifiedData['re-verified-date'] || '';
-                    const summary = verifiedData['re-verification-summary'] || '';
+                    const verifiedBy = verifiedData['re-verified-by'] || verifiedData['verified-by'] || '';
+                    const verifiedDate = verifiedData['re-verified-date'] || verifiedData['verified-date'] || '';
+                    const summary = verifiedData['re-verification-summary'] || verifiedData['summary'] || '';
+                    const topFutureFix = verifiedData['future-fix'] || '';
                     html += `<div class="re-verified-banner">`;
                     html += `<div style="font-weight: bold; margin-bottom: 5px;">`;
                     html += `Re-Verified`;
@@ -2382,6 +2618,9 @@ def main():
                     html += `</div>`;
                     if (summary) {{
                         html += `<div style="font-size: 0.95em;">${{escapeHtml(summary)}}</div>`;
+                    }}
+                    if (topFutureFix) {{
+                        html += `<div style="font-size: 0.95em; margin-top: 5px;"><strong>Future Fix:</strong> ${{formatFixLinks(topFutureFix)}}</div>`;
                     }}
                     html += `</div>`;
                 }}
@@ -2404,6 +2643,11 @@ def main():
                     html += `<div><span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${{data['upstream-commit']}}" target="_blank" class="review-link">${{escapeHtml(data['upstream-commit'])}}</a></span></div>`;
                 }} else if (data['upstream_commit']) {{
                     html += `<div><span class="review-metadata">Git-commit: <a href="https://github.com/torvalds/linux/commit/${{data['upstream_commit']}}" target="_blank" class="review-link">${{escapeHtml(data['upstream_commit'])}}</a></span></div>`;
+                }}
+                if (data['issues-fixed'] !== undefined) {{
+                    html += `<div><span class="review-metadata">Issues-fixed: ${{escapeHtml(data['issues-fixed'])}}</span></div>`;
+                }} else if (verifiedData && verifiedData['issues-fixed'] !== undefined) {{
+                    html += `<div><span class="review-metadata">Issues-fixed: ${{escapeHtml(verifiedData['issues-fixed'])}}</span></div>`;
                 }}
                 
                 // Backport info
@@ -2462,8 +2706,10 @@ def main():
                     data.findings.forEach((f, idx) => {{
                         // Merge re-verification fields from verifiedData if available
                         const vf = (verifiedData && verifiedData.findings && verifiedData.findings[idx]) || {{}};
-                        const reStatus = (vf['re-verification-status'] || f['re-verification-status'] || '').toLowerCase();
-                        const reComment = vf['re-verification-comment'] || f['re-verification-comment'] || '';
+                        const reStatus = (vf['re-verification-status'] || vf['status'] || f['re-verification-status'] || f['status'] || '').toLowerCase();
+                        const reComment = vf['re-verification-comment'] || vf['reason'] || f['re-verification-comment'] || f['reason'] || f['comment'] || '';
+                        const fixStatus = (vf['fix-status'] || f['fix-status'] || '').toLowerCase();
+                        const futureFix = vf['future-fix'] || f['future-fix'] || '';
 
                         const sevClass = f.severity ? `finding-${{f.severity.toString().toLowerCase()}}` : "";
                         html += `<div class="finding-item ${{sevClass}}" style="margin-top: 10px;">`;
@@ -2472,6 +2718,10 @@ def main():
                             const reClass = reStatus === 'confirmed' ? 're-verified-confirmed' : (reStatus === 'rejected' || reStatus === 'pruned') ? `re-verified-${{reStatus}}` : 're-verified-unknown';
                             html += ` <span class="re-verified-badge ${{reClass}}">${{escapeHtml(reStatus)}}</span>`;
                         }}
+                        if (fixStatus) {{
+                            const fixClass = fixStatus === 'fixed' ? 'fix-status-fixed' : (fixStatus === 'fixed-upstream' ? 'fix-status-fixed-upstream' : 'fix-status-not-fixed');
+                            html += ` <span class="fix-status-badge ${{fixClass}}">${{escapeHtml(fixStatus)}}</span>`;
+                        }}
                         html += `</div>`;
                         const sev = (f.severity || "N/A").toString().toLowerCase();
                         const conf = (f.confidence || "N/A").toString().toLowerCase();
@@ -2479,6 +2729,9 @@ def main():
                         const confBadgeClass = ["high", "medium", "low"].includes(conf) ? `finding-badge-${{conf}}` : "finding-badge-unknown";
                         html += `<div><span class="finding-label">Severity:</span> <span class="finding-badge ${{sevBadgeClass}}">${{escapeHtml(f.severity || "N/A")}}</span></div>`;
                         html += `<div><span class="finding-label">Confidence:</span> <span class="finding-badge ${{confBadgeClass}}">${{escapeHtml(f.confidence || "N/A")}}</span></div>`;
+                        if (futureFix) {{
+                            html += `<div style="margin-top: 5px;"><span class="finding-label">Future Fix:</span> ${{formatFixLinks(futureFix)}}</div>`;
+                        }}
                         html += `<div style="margin-top:5px;"><strong>Message:</strong></div>`;
                         html += `<div class="finding-message">${{formatMarkdown(f.message || "", false)}}</div>`;
                         if (f.evidence) {{
