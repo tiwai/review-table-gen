@@ -701,6 +701,8 @@ split_html_template = """<!DOCTYPE html>
                 container.style.display = 'none';
                 if (arrow) arrow.innerText = '▶';
             }
+        }
+
         function formatFixLinks(text) {
             if (!text) return "";
             let safe = escapeHtml(text);
@@ -2273,6 +2275,8 @@ def main():
                     alert("Invalid page number.");
                 }}
             }}
+        }}
+
         function formatFixLinks(text) {{
             if (!text) return "";
             let safe = escapeHtml(text);

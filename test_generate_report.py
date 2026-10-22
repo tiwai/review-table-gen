@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 
 # Import the module under test
@@ -600,6 +602,28 @@ class TestIssuesFixedSupport(unittest.TestCase):
 
             self.assertIn("fix-status-badge", split_content)
             self.assertIn("formatFixLinks", split_content)
+
+            # Validate JavaScript syntax in generated HTML pages
+            node_path = shutil.which("node")
+            if node_path:
+                for name, content in [("main report", html_content), ("split review", split_content)]:
+                    scripts = re.findall(r'<script>(.*?)</script>', content, re.DOTALL)
+                    self.assertTrue(len(scripts) > 0, f"No scripts found in {name}")
+                    for idx, s in enumerate(scripts):
+                        res = subprocess.run([node_path, "--check", "-"], input=s, capture_output=True, text=True)
+                        self.assertEqual(res.returncode, 0, f"JS syntax error in {name} script {idx}:\n{res.stderr}")
+
+                # Also test single-page mode report
+                single_html = os.path.join(tmp_dir, "single_report.html")
+                with patch("sys.argv", ["generate_report.py", "--single-page", "--dataset", tmp_dir, "--model", "test-model", "--list", list_file, "--output", single_html]):
+                    generate_report.main()
+                self.assertTrue(os.path.exists(single_html))
+                with open(single_html, "r") as f:
+                    single_content = f.read()
+                single_scripts = re.findall(r'<script>(.*?)</script>', single_content, re.DOTALL)
+                for idx, s in enumerate(single_scripts):
+                    res = subprocess.run([node_path, "--check", "-"], input=s, capture_output=True, text=True)
+                    self.assertEqual(res.returncode, 0, f"JS syntax error in single-page script {idx}:\n{res.stderr}")
 
 if __name__ == "__main__":
     unittest.main()
