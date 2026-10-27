@@ -524,6 +524,15 @@ class TestIssuesFixedSupport(unittest.TestCase):
         self.assertIn(".fix-status-not-fixed", generate_report.CSS_STYLES)
         self.assertIn(".severity-all-fixed", generate_report.CSS_STYLES)
 
+    def test_table_legend_styles(self):
+        """Test that CSS_STYLES contains table legend style definitions."""
+        self.assertIn(".legend-container", generate_report.CSS_STYLES)
+        self.assertIn(".legend-title", generate_report.CSS_STYLES)
+        self.assertIn(".legend-grid", generate_report.CSS_STYLES)
+        self.assertIn(".legend-group", generate_report.CSS_STYLES)
+        self.assertIn(".legend-item", generate_report.CSS_STYLES)
+        self.assertIn(".legend-swatch", generate_report.CSS_STYLES)
+
     def test_html_templates_contain_filter_and_fix_handling(self):
         """Test that split_html_template and generated main HTML contain filter & fix-status handlers."""
         # split_html_template
@@ -593,6 +602,23 @@ class TestIssuesFixedSupport(unittest.TestCase):
             self.assertIn("formatFixLinks", html_content)
             self.assertIn("fix-status-badge", html_content)
             self.assertIn("severity-all-fixed", html_content)
+            self.assertIn("legend-container", html_content)
+            self.assertIn("Table Legend", html_content)
+            self.assertIn("Commit State", html_content)
+            self.assertIn("✅", html_content)
+            self.assertIn("❌", html_content)
+            self.assertIn("Unreviewed", html_content)
+            self.assertIn("Issues &amp; Cell Highlights", html_content)
+            self.assertIn("has-downstream", html_content)
+            self.assertIn("has-pre-verification", html_content)
+            self.assertIn("has-verified", html_content)
+            self.assertIn("Fixed issues", html_content)
+            self.assertIn("Visited", html_content)
+            self.assertIn("Severity Levels", html_content)
+            self.assertIn("severity-high", html_content)
+            self.assertIn("severity-medium", html_content)
+            self.assertIn("severity-low", html_content)
+            self.assertIn("severity-none", html_content)
 
             # Check that split HTML review was also created and contains fix status handlers
             split_review_path = os.path.join(tmp_dir, "reviews", "test-model", commit_id[:2], commit_id, "review.html")
@@ -620,6 +646,7 @@ class TestIssuesFixedSupport(unittest.TestCase):
                 self.assertTrue(os.path.exists(single_html))
                 with open(single_html, "r") as f:
                     single_content = f.read()
+                self.assertIn("legend-container", single_content)
                 single_scripts = re.findall(r'<script>(.*?)</script>', single_content, re.DOTALL)
                 for idx, s in enumerate(single_scripts):
                     res = subprocess.run([node_path, "--check", "-"], input=s, capture_output=True, text=True)

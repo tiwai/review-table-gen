@@ -24,15 +24,20 @@ A Python-based tool to generate a single, standalone static HTML report for Linu
 
 The generated report features a comprehensive table with the following columns:
 
+- **State**: Interactive review status marker (`✅` OK, `❌` Bad, blank / Unreviewed). Clicking the cell cycles through the states; preferences are saved in the browser.
 - **Subject**: The commit subject line from the input list.
 - **Commit ID**: Links to the downstream (expanded) kernel tree commit.
 - **kernel-source**: Links to the `kernel-source.git` commit corresponding to the patch.
-- **Issues**: Displays the number of potential issues found.
+- **Issues**: Displays the number of open issues found, with resolved issues shown in parentheses `(N fixed)`.
     - **Brackets `[N]`**: Indicates the number of issues unique to the SUSE downstream backport.
-    - **Highlighting**: Cells with downstream-only issues (where total issues > 0) are highlighted with a distinct background color.
-    - **Asterisk `*`**: Indicates that pre-verified findings are available for this review.
-- **Severity**: The estimated severity level of the regression (None, Low, Medium, High).
+    - **Highlighting**: Cells with downstream-only issues (where open issues > 0) are highlighted with a distinct background color.
+    - **Asterisk `*`**: Indicates that pre-verified findings are available for this review (with pre-verification background color).
+    - **Checkmark `✓`**: Indicates that re-verified findings are available for this review (with re-verified background color).
+    - **Dimmed Cells**: Indicates that the review has already been visited in the current browser.
+- **Severity**: The estimated severity level of the regression (None, Low, Medium, High). Highlighted with severity colors, and dimmed with `(fixed)` when all findings are resolved.
 - **Review Time**: The time spent by the model reviewing the commit, in seconds.
+
+A **Table Legend** is displayed at the bottom of the report to explain all markers, symbols, and highlight colors.
 
 ## Requirements
 

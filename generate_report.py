@@ -503,6 +503,67 @@ CSS_STYLES = """
             text-overflow: ellipsis;
         }}
         
+        /* Legend styles */
+        .legend-container {{
+            margin-top: 25px;
+            margin-bottom: 20px;
+            padding: 15px 20px;
+            background: var(--table-bg);
+            border: 1px solid var(--table-border);
+            border-radius: 6px;
+            font-size: 13px;
+        }}
+        .legend-title {{
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: var(--text-color);
+        }}
+        .legend-grid {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 24px;
+        }}
+        .legend-group {{
+            flex: 1;
+            min-width: 220px;
+        }}
+        .legend-group-title {{
+            font-weight: bold;
+            font-size: 13px;
+            margin-bottom: 8px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid var(--table-border);
+            color: var(--text-color);
+        }}
+        .legend-item {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            line-height: 1.4;
+            color: var(--text-color);
+        }}
+        .legend-swatch {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            padding: 2px 6px;
+            min-width: 24px;
+            height: 20px;
+            box-sizing: border-box;
+            border-radius: 3px;
+            border: 1px solid var(--table-border);
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            user-select: none;
+            background-color: var(--table-bg);
+            color: var(--text-color);
+        }}
+        
         /* Modal styles */
         .modal {{ display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: var(--modal-bg); }}
         .modal-content {{ background-color: var(--modal-content-bg); margin: 5% auto; padding: 20px; border: 1px solid var(--table-border); width: 80%; max-height: 80%; overflow-y: auto; position: relative; font-size: 16px; color: var(--text-color); }}
@@ -1665,6 +1726,77 @@ def main():
                 <option value="200">200</option>
                 <option value="500">500</option>
             </select>
+        </div>
+    </div>
+
+    <div class="legend-container">
+        <div class="legend-title">Table Legend</div>
+        <div class="legend-grid">
+            <div class="legend-group">
+                <div class="legend-group-title">Commit State</div>
+                <div class="legend-item">
+                    <span class="legend-swatch">✅</span>
+                    <span><strong>OK</strong>: Reviewed and verified clean</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch">❌</span>
+                    <span><strong>Bad</strong>: Reviewed and marked with issues</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch" style="opacity: 0.5;">—</span>
+                    <span><strong>Unreviewed</strong>: Default state. Click cell to cycle (Unreviewed &rarr; ✅ &rarr; ❌)</span>
+                </div>
+            </div>
+            <div class="legend-group">
+                <div class="legend-group-title">Issues &amp; Cell Highlights</div>
+                <div class="legend-item">
+                    <span class="legend-swatch">N</span>
+                    <span><strong>Open issues</strong>: Primary number indicates open (unresolved) issues count</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch">(N fixed)</span>
+                    <span><strong>Fixed issues</strong>: Count of issues resolved in subsequent commits</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch has-downstream">[N]</span>
+                    <span><strong>[N] (highlighted)</strong>: Issues unique to downstream backport</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch has-pre-verification">*</span>
+                    <span><strong>* (highlighted)</strong>: Pre-verified findings available</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch has-verified">✓</span>
+                    <span><strong>✓ (highlighted)</strong>: Re-verified result available</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch visited" style="border-style: dashed;">Visited</span>
+                    <span><strong>Dimmed cell</strong>: Review details already opened in browser</span>
+                </div>
+            </div>
+            <div class="legend-group">
+                <div class="legend-group-title">Severity Levels</div>
+                <div class="legend-item">
+                    <span class="legend-swatch severity-high">High</span>
+                    <span>High severity regression or defect</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch severity-medium">Medium</span>
+                    <span>Medium severity regression or defect</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch severity-low">Low</span>
+                    <span>Low severity regression or defect</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch severity-none">None</span>
+                    <span>No issues found or negligible severity</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch severity-all-fixed">(fixed)</span>
+                    <span>Dimmed with <em>(fixed)</em> when all reported issues are resolved</span>
+                </div>
+            </div>
         </div>
     </div>
 
