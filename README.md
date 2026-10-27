@@ -155,7 +155,7 @@ or simply `make serve`. The config file looks like:
 }
 ```
 
-Relative paths are resolved against the config file location. `dataset`, `rows`, `kerncvs` and `show_review_time` can be overridden per branch.
+Relative paths are resolved against the config file location, and `~` is expanded. A relative `list` is looked up in the dataset directory first (e.g. `branches/SLE12-SP5/list`), then relative to the config file. `dataset`, `rows`, `kerncvs` and `show_review_time` can be overridden per branch.
 
 Served URLs:
 - `/`: List of branches (redirects if only one branch is configured).

@@ -61,6 +61,7 @@ def load_config(path):
     if not isinstance(branches, dict) or not branches:
         raise ValueError("config must contain a non-empty 'branches' object")
     # Relative paths are resolved against the config file location
+    # (except for the list, see below)
     base = os.path.dirname(os.path.abspath(path))
     for name, branch in branches.items():
         if "list" not in branch or "models" not in branch:
@@ -68,8 +69,14 @@ def load_config(path):
         dataset = branch.get("dataset", config.get("dataset"))
         if not dataset:
             raise ValueError(f"no dataset given for branch '{name}'")
-        branch["dataset"] = os.path.join(base, dataset)
-        branch["list"] = os.path.join(base, branch["list"])
+        # '~' is expanded; absolute paths are kept as they are
+        dataset = os.path.join(base, os.path.expanduser(dataset))
+        branch["dataset"] = dataset
+        # The list is looked up in the dataset directory first (e.g.
+        # "branches/<NAME>/list"), then relative to the config file
+        list_path = os.path.expanduser(branch["list"])
+        in_dataset = os.path.join(dataset, list_path)
+        branch["list"] = in_dataset if os.path.exists(in_dataset) else os.path.join(base, list_path)
     return config
 
 
