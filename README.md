@@ -117,7 +117,7 @@ These parameters take precedence over stored preferences and script defaults.
 `review_server.py` serves the same pages dynamically instead of writing static files. It uses only the Python standard library, reuses the loaders and templates from `generate_report.py` (run it from the source tree), and serves multiple branches from a single process. Reviews are read from a dataset directory (git tree access is not supported).
 
 ```bash
-python3 review_server.py --config server.json [--host 127.0.0.1] [--port 8080] [--ttl 60] \
+python3 review_server.py --config server.json [--host 127.0.0.1] [--port 8080] [--ttl 60] [--cache-dir DIR | --no-disk-cache] \
     [--certfile cert.pem [--keyfile key.pem]] \
     [--log-file server.log] [--log-level debug|info|warning|error]
 ```
@@ -163,7 +163,7 @@ Served URLs:
 - `/b/<BRANCH>/reviews/<MODEL_DIR>/<xx>/<SHA>/review.html`: Review subpage, read from the dataset on each request.
 - `/api/<BRANCH>.json`: The index data as JSON.
 
-The collected index data of each branch is cached for `--ttl` seconds, and rebuilt earlier when the commit list file changes. Append `?reload=1` to any URL to force a rebuild. The server binds to `127.0.0.1` by default; it has no authentication, so be careful when binding to other addresses (use HTTPS, or put a reverse proxy in front).
+Every `--ttl` seconds (and when the commit list file changes), the server checks whether the commit list or the review directories of a branch have changed. If so, the branch is rebuilt in the background while the previous version keeps being served. The result is also saved in `--cache-dir` (default `~/.cache/review_server`; `--no-disk-cache` disables it), so a restarted server doesn't need to rebuild unchanged branches. Edits to existing review files inside an unchanged directory are not detected; use `?reload=1` for that. Index pages are sent with an `ETag` and gzip encoding when accepted. Append `?reload=1` to any URL to force a rebuild. The server binds to `127.0.0.1` by default; it has no authentication, so be careful when binding to other addresses (use HTTPS, or put a reverse proxy in front).
 
 ## Dataset Structure
 

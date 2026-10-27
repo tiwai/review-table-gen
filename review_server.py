@@ -23,6 +23,9 @@
 """Minimal local web service rendering kernel review reports on demand."""
 
 import argparse
+import collections
+import gzip
+import hashlib
 import html
 import json
 import logging
@@ -37,6 +40,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
+import generate_report
 from generate_report import (
     collect_review_data,
     get_review_data,
@@ -49,6 +53,9 @@ from generate_report import (
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 LOG_LEVELS = ("debug", "info", "warning", "error")
+DEFAULT_CACHE_DIR = "~/.cache/review_server"
+DISK_CACHE_VERSION = 1      # bump when the on-disk format changes
+PAGE_CACHE_SIZE = 128       # number of rendered review pages kept in memory
 
 log = logging.getLogger("review_server")
 
@@ -81,13 +88,23 @@ def load_config(path):
 
 
 class ReportCache:
-    """Per-branch cache of the collected review data and rendered index."""
+    """Per-branch cache of the collected review data and rendered index.
 
-    def __init__(self, config, ttl):
+    A branch is rebuilt only when its fingerprint (see fingerprint()) changes.
+    The check is done at most every 'ttl' seconds, and the rebuild runs in the
+    background while the previous version keeps being served.  The result is
+    also stored in 'cache_dir' (if given) to survive a server restart.
+    """
+
+    def __init__(self, config, ttl, cache_dir=None):
         self.config = config
         self.ttl = ttl
+        self.cache_dir = os.path.expanduser(cache_dir) if cache_dir else None
         self.entries = {}
         self.locks = {name: threading.Lock() for name in config["branches"]}
+        self.rebuilding = set()
+        self.pages = collections.OrderedDict()
+        self.pages_lock = threading.Lock()
 
     def option(self, branch, key, default):
         return branch.get(key, self.config.get(key, default))
@@ -95,21 +112,91 @@ class ReportCache:
     def branch_links(self):
         return {name: f"/b/{quote(name, safe='')}/" for name in self.config["branches"]}
 
+    def list_stat(self, branch):
+        st = os.stat(branch["list"])
+        return (st.st_mtime_ns, st.st_size)
+
+    def fingerprint(self, name, branch):
+        """Cheap digest of everything that determines the rendered output.
+
+        It covers the code, the config, the commit list, and the model
+        directories.  The latter are checked by the mtimes of the description
+        files and of the two-hex-digit prefix directories, so a new review is
+        noticed without reading any review file.
+        """
+        h = hashlib.sha256()
+
+        def add(*vals):
+            h.update(repr(vals).encode("utf-8"))
+
+        add(DISK_CACHE_VERSION, os.stat(generate_report.__file__).st_mtime_ns,
+            os.stat(__file__).st_mtime_ns)
+        add(json.dumps([name, branch, self.option(branch, "kerncvs", False),
+                        self.option(branch, "rows", 50),
+                        self.option(branch, "show_review_time", False),
+                        self.branch_links()], sort_keys=True))
+        add(self.list_stat(branch))
+        for model in branch["models"]:
+            path = os.path.join(branch["dataset"], model)
+            try:
+                add(model, os.stat(os.path.join(path, "description")).st_mtime_ns)
+                with os.scandir(path) as it:
+                    subdirs = sorted((e.name, e.stat().st_mtime_ns)
+                                     for e in it if e.is_dir())
+                add(subdirs)
+            except OSError as e:
+                add(model, str(e))
+        return h.hexdigest()
+
     def get(self, name, force=False):
         branch = self.config["branches"][name]
         with self.locks[name]:
             entry = self.entries.get(name)
-            mtime = os.path.getmtime(branch["list"])
-            if (force or entry is None or entry["mtime"] != mtime or
-                    time.monotonic() - entry["built"] > self.ttl):
-                start = time.monotonic()
-                entry = self.build(name, branch, mtime)
+            if entry is None and not force:
+                entry = self.load_from_disk(name)
+                if entry:
+                    self.entries[name] = entry
+            if force or entry is None:
+                entry = self.rebuild(name, branch)
                 self.entries[name] = entry
-                log.debug("rebuilt branch %s: %d commits in %.2fs", name,
-                          len(entry["commits"]), time.monotonic() - start)
+                return entry
+            if name not in self.rebuilding and self.is_due(entry, branch):
+                entry["checked"] = time.monotonic()
+                entry["list_stat"] = self.list_stat(branch)
+                if self.fingerprint(name, branch) != entry["fingerprint"]:
+                    self.rebuilding.add(name)
+                    threading.Thread(target=self.rebuild_in_background,
+                                     args=(name, branch), daemon=True).start()
             return entry
 
-    def build(self, name, branch, mtime):
+    def is_due(self, entry, branch):
+        return (time.monotonic() - entry["checked"] > self.ttl or
+                self.list_stat(branch) != entry["list_stat"])
+
+    def rebuild_in_background(self, name, branch):
+        try:
+            entry = self.rebuild(name, branch)
+            with self.locks[name]:
+                self.entries[name] = entry
+        except Exception:
+            log.exception("background rebuild of branch %s failed", name)
+        finally:
+            with self.locks[name]:
+                self.rebuilding.discard(name)
+
+    def rebuild(self, name, branch):
+        start = time.monotonic()
+        # Taken before reading anything, so that a change made during the
+        # build is noticed at the next check
+        fingerprint = self.fingerprint(name, branch)
+        entry = self.build(name, branch, fingerprint)
+        log.debug("rebuilt branch %s: %d commits in %.2fs", name,
+                  len(entry["commits"]), time.monotonic() - start)
+        self.save_to_disk(name, entry)
+        return entry
+
+    def build(self, name, branch, fingerprint):
+        list_stat = self.list_stat(branch)
         commits = parse_commit_list(branch["list"])
         dataset_sources, model_name_to_dir = load_model_sources(branch["dataset"], branch["models"])
         processed_data, authors = collect_review_data(commits, dataset_sources)
@@ -120,15 +207,96 @@ class ReportCache:
             authors, self.branch_links(), index_data, list(dataset_sources.keys()),
             self.option(branch, "rows", 50), kerncvs,
             self.option(branch, "show_review_time", False))
+        return self.make_entry(
+            fingerprint, list_stat, kerncvs, index_html.encode("utf-8"),
+            json.dumps(index_data, separators=(",", ":")).encode("utf-8"),
+            {d: (n, dataset_sources[n]) for n, d in model_name_to_dir.items()})
+
+    def make_entry(self, fingerprint, list_stat, kerncvs, index_html, index_json, models):
         return {
-            "built": time.monotonic(),
-            "mtime": mtime,
+            "checked": time.monotonic(),
+            "fingerprint": fingerprint,
+            "list_stat": list_stat,
             "kerncvs": kerncvs,
-            "index_html": index_html.encode("utf-8"),
-            "index_json": json.dumps(index_data, separators=(",", ":")).encode("utf-8"),
-            "commits": {item["full_id"].lower(): item for item in index_data},
-            "models": {d: (n, dataset_sources[n]) for n, d in model_name_to_dir.items()},
+            "index_html": index_html,
+            "index_json": index_json,
+            "gzipped": {},      # compressed bodies, filled on demand
+            "commits": {item["full_id"].lower(): item for item in json.loads(index_json)},
+            "models": models,
         }
+
+    def body(self, entry, key, compressed):
+        """Return the 'index_html' or 'index_json' body, optionally gzipped."""
+        if not compressed:
+            return entry[key]
+        if key not in entry["gzipped"]:
+            entry["gzipped"][key] = gzip.compress(entry[key], 6)
+        return entry["gzipped"][key]
+
+    def disk_path(self, name):
+        return os.path.join(self.cache_dir, quote(name, safe="") + ".json")
+
+    def save_to_disk(self, name, entry):
+        if not self.cache_dir:
+            return
+        path = self.disk_path(name)
+        tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            os.makedirs(self.cache_dir, exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({
+                    "version": DISK_CACHE_VERSION,
+                    "fingerprint": entry["fingerprint"],
+                    "list_stat": entry["list_stat"],
+                    "kerncvs": entry["kerncvs"],
+                    "models": entry["models"],
+                    "index_html": entry["index_html"].decode("utf-8"),
+                    "index_json": entry["index_json"].decode("utf-8"),
+                }, f)
+            os.replace(tmp, path)
+        except OSError as e:
+            log.warning("cannot write cache file %s: %s", path, e)
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+    def load_from_disk(self, name):
+        """Load a previously saved entry; it's treated as due for a check."""
+        if not self.cache_dir:
+            return None
+        path = self.disk_path(name)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data["version"] != DISK_CACHE_VERSION:
+                return None
+            entry = self.make_entry(
+                data["fingerprint"], tuple(data["list_stat"]), data["kerncvs"],
+                data["index_html"].encode("utf-8"), data["index_json"].encode("utf-8"),
+                {d: tuple(v) for d, v in data["models"].items()})
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            log.warning("ignoring unusable cache file %s: %s", path, e)
+            return None
+        entry["checked"] = float("-inf")
+        log.debug("loaded branch %s from %s", name, path)
+        return entry
+
+    def get_page(self, key):
+        with self.pages_lock:
+            page = self.pages.get(key)
+            if page is not None:
+                self.pages.move_to_end(key)
+            return page
+
+    def put_page(self, key, page):
+        with self.pages_lock:
+            self.pages[key] = page
+            self.pages.move_to_end(key)
+            while len(self.pages) > PAGE_CACHE_SIZE:
+                self.pages.popitem(last=False)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -143,14 +311,29 @@ class Handler(BaseHTTPRequestHandler):
         # Malformed requests, timeouts and the like
         log.warning("%s %s", self.address_string(), format % args)
 
-    def send_body(self, code, body, ctype="text/html; charset=utf-8"):
+    def send_body(self, code, body, ctype="text/html; charset=utf-8", headers=None):
         if isinstance(body, str):
             body = body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def send_cached(self, entry, key, ctype):
+        """Send a cached index body with ETag and optional gzip encoding."""
+        accepted = [t.split(";")[0].strip() for t in
+                    self.headers.get("Accept-Encoding", "").split(",")]
+        compressed = "gzip" in accepted
+        etag = '"%s-%s%s"' % (entry["fingerprint"][:32], key, "-gz" if compressed else "")
+        headers = {"ETag": etag, "Cache-Control": "no-cache", "Vary": "Accept-Encoding"}
+        if etag in [t.strip() for t in self.headers.get("If-None-Match", "").split(",")]:
+            return self.send_body(304, b"", ctype, headers)
+        if compressed:
+            headers["Content-Encoding"] = "gzip"
+        self.send_body(200, self.cache.body(entry, key, compressed), ctype, headers)
 
     def redirect(self, location):
         self.send_response(302)
@@ -173,8 +356,8 @@ class Handler(BaseHTTPRequestHandler):
                 name = parts[2][:-len(".json")]
                 if name not in branches:
                     return self.fail(404, f"Unknown branch '{name}'")
-                self.send_body(200, self.cache.get(name, force)["index_json"],
-                               "application/json")
+                self.send_cached(self.cache.get(name, force), "index_json",
+                                 "application/json")
             elif len(parts) >= 3 and parts[1] == "b":
                 name = parts[2]
                 if name not in branches:
@@ -183,7 +366,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not rest:
                     self.redirect(f"/b/{quote(name, safe='')}/")
                 elif rest == [""]:
-                    self.send_body(200, self.cache.get(name, force)["index_html"])
+                    self.send_cached(self.cache.get(name, force), "index_html",
+                                     "text/html; charset=utf-8")
                 elif len(rest) == 5 and rest[0] == "reviews" and rest[4] == "review.html":
                     self.serve_review(name, rest[1], rest[2], rest[3], force)
                 else:
@@ -215,11 +399,25 @@ class Handler(BaseHTTPRequestHandler):
         if item is None:
             return self.fail(404, f"Commit {sha} is not in branch '{name}'")
         model_name, model_path = entry["models"][model_dir]
-        review = get_review_data(model_path, sha)
-        if not review:
-            return self.fail(404, f"No review of {sha} by {model_name}")
-        page = render_review_html(model_name, item["id"], item["subject"], review,
-                                  f"/b/{quote(name, safe='')}/", entry["kerncvs"])
+        # Rendered pages are reused as long as the review files are untouched
+        key = None
+        try:
+            review_dir = os.path.join(model_path, sha[:2], sha)
+            key = (name, model_dir, sha, entry["fingerprint"],
+                   os.stat(review_dir).st_mtime_ns,
+                   os.stat(os.path.join(review_dir, "review-metadata.json")).st_mtime_ns)
+        except OSError:
+            pass
+        page = self.cache.get_page(key) if key and not force else None
+        if page is None:
+            review = get_review_data(model_path, sha)
+            if not review:
+                return self.fail(404, f"No review of {sha} by {model_name}")
+            page = render_review_html(model_name, item["id"], item["subject"], review,
+                                      f"/b/{quote(name, safe='')}/",
+                                      entry["kerncvs"]).encode("utf-8")
+            if key:
+                self.cache.put_page(key, page)
         self.send_body(200, page)
 
 
@@ -259,8 +457,9 @@ class ReviewHTTPServer(ThreadingHTTPServer):
             log.exception("error handling request from %s", client_address[0])
 
 
-def make_server(config, host, port, ttl, certfile=None, keyfile=None):
-    handler = type("ConfiguredHandler", (Handler,), {"cache": ReportCache(config, ttl)})
+def make_server(config, host, port, ttl, certfile=None, keyfile=None, cache_dir=None):
+    handler = type("ConfiguredHandler", (Handler,),
+                   {"cache": ReportCache(config, ttl, cache_dir)})
     server = ReviewHTTPServer((host, port), handler)
     if certfile:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -285,7 +484,13 @@ def main():
     parser.add_argument("--config", required=True, help="Server config JSON file")
     parser.add_argument("--host", default="127.0.0.1", help="Address to bind (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8080, help="Port to listen on (default: 8080)")
-    parser.add_argument("--ttl", type=float, default=60, help="Seconds to cache branch data (default: 60)")
+    parser.add_argument("--ttl", type=float, default=60,
+                        help="Seconds between checks for changed data; a changed branch is "
+                        "rebuilt in the background (default: 60)")
+    parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR,
+                        help=f"Directory for the persistent cache (default: {DEFAULT_CACHE_DIR})")
+    parser.add_argument("--no-disk-cache", action="store_true",
+                        help="Do not keep the cache across restarts")
     parser.add_argument("--certfile", help="PEM certificate file; enables HTTPS in addition to HTTP")
     parser.add_argument("--keyfile", help="PEM private key file (if not included in --certfile)")
     parser.add_argument("--log-file", help="Write logs to this file instead of stderr")
@@ -311,7 +516,8 @@ def main():
 
     try:
         server = make_server(config, args.host, args.port, args.ttl,
-                             args.certfile, args.keyfile)
+                             args.certfile, args.keyfile,
+                             None if args.no_disk_cache else args.cache_dir)
     except (OSError, ssl.SSLError) as e:
         print(f"Error: Could not start server: {e}")
         sys.exit(1)

@@ -1,4 +1,5 @@
 import unittest
+import gzip
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ import ssl
 import subprocess
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -98,6 +100,118 @@ class TestReviewServer(unittest.TestCase):
         self.assertEqual(self.get("/b/test/reviews/gemma-4/00/" + "0" * 40 + "/review.html")[0], 404)
         self.assertEqual(self.get("/b/test/reviews/..%2F..%2Fetc/27/" + SHA + "/review.html")[0], 404)
         self.assertEqual(self.get("/b/test/other")[0], 404)
+
+class TestCaching(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.list_path = os.path.join(self.tmpdir.name, "list")
+        shutil.copy(os.path.join(TEST_DIR, "list-test"), self.list_path)
+        self.cache_dir = os.path.join(self.tmpdir.name, "cache")
+        self.config = {"branches": {"test": {"list": self.list_path,
+                                             "models": ["gemma-4"],
+                                             "dataset": os.path.join(TEST_DIR, "data")}}}
+        self.servers = []
+
+    def tearDown(self):
+        for server in self.servers:
+            server.shutdown()
+            server.server_close()
+        self.tmpdir.cleanup()
+
+    def start(self, ttl=0, cache_dir=None):
+        server = review_server.make_server(self.config, "127.0.0.1", 0, ttl,
+                                           cache_dir=cache_dir)
+        self.servers.append(server)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def wait_idle(self, cache):
+        for _ in range(200):
+            if not cache.rebuilding:
+                return
+            time.sleep(0.05)
+        self.fail("background rebuild did not finish")
+
+    def count_builds(self, cache):
+        counter = {"n": 0}
+        orig = cache.build
+
+        def build(*args):
+            counter["n"] += 1
+            return orig(*args)
+        cache.build = build
+        return counter
+
+    def test_unchanged_data_is_not_rebuilt(self):
+        server, base = self.start(ttl=0)
+        cache = server.RequestHandlerClass.cache
+        counter = self.count_builds(cache)
+        for _ in range(3):
+            urllib.request.urlopen(base + "/b/test/").read()
+        self.assertEqual(counter["n"], 1)
+
+    def test_changed_list_is_rebuilt_in_background(self):
+        server, base = self.start(ttl=0)
+        cache = server.RequestHandlerClass.cache
+        self.assertEqual(len(json.loads(urllib.request.urlopen(base + "/api/test.json").read())), 3)
+        with open(self.list_path, "w", encoding="utf-8") as f:
+            f.write(f"{SHA} only one\n")
+        # The old data is served first, then the new one
+        urllib.request.urlopen(base + "/api/test.json").read()
+        self.wait_idle(cache)
+        self.assertEqual(len(json.loads(urllib.request.urlopen(base + "/api/test.json").read())), 1)
+
+    def test_disk_cache_survives_restart(self):
+        server, base = self.start(cache_dir=self.cache_dir)
+        first = urllib.request.urlopen(base + "/b/test/").read()
+        self.assertTrue(os.path.exists(os.path.join(self.cache_dir, "test.json")))
+        server2, base2 = self.start(cache_dir=self.cache_dir)
+        counter = self.count_builds(server2.RequestHandlerClass.cache)
+        self.assertEqual(urllib.request.urlopen(base2 + "/b/test/").read(), first)
+        self.assertEqual(counter["n"], 0)
+        status = urllib.request.urlopen(base2 + f"/b/test/reviews/gemma-4/27/{SHA}/review.html").status
+        self.assertEqual(status, 200)
+
+    def test_corrupt_disk_cache_is_ignored(self):
+        os.makedirs(self.cache_dir)
+        with open(os.path.join(self.cache_dir, "test.json"), "w") as f:
+            f.write("{broken")
+        server, base = self.start(cache_dir=self.cache_dir)
+        counter = self.count_builds(server.RequestHandlerClass.cache)
+        self.assertEqual(urllib.request.urlopen(base + "/b/test/").status, 200)
+        self.assertEqual(counter["n"], 1)
+
+    def test_etag_and_gzip(self):
+        _, base = self.start()
+        resp = urllib.request.urlopen(base + "/b/test/")
+        etag = resp.headers["ETag"]
+        body = resp.read()
+        req = urllib.request.Request(base + "/b/test/", headers={"If-None-Match": etag})
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(req)
+        self.assertEqual(cm.exception.code, 304)
+        req = urllib.request.Request(base + "/b/test/", headers={"Accept-Encoding": "gzip"})
+        resp = urllib.request.urlopen(req)
+        self.assertEqual(resp.headers["Content-Encoding"], "gzip")
+        self.assertNotEqual(resp.headers["ETag"], etag)
+        self.assertEqual(gzip.decompress(resp.read()), body)
+
+    def test_review_page_cache(self):
+        server, base = self.start()
+        cache = server.RequestHandlerClass.cache
+        url = base + f"/b/test/reviews/gemma-4/27/{SHA}/review.html"
+        first = urllib.request.urlopen(url).read()
+        self.assertEqual(len(cache.pages), 1)
+        calls = []
+        orig = review_server.get_review_data
+        review_server.get_review_data = lambda *a: calls.append(a) or orig(*a)
+        try:
+            self.assertEqual(urllib.request.urlopen(url).read(), first)
+            self.assertEqual(calls, [])
+            urllib.request.urlopen(url + "?reload=1").read()
+            self.assertEqual(len(calls), 1)
+        finally:
+            review_server.get_review_data = orig
 
 class TestLogging(unittest.TestCase):
     def setUp(self):
