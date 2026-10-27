@@ -1,0 +1,18 @@
+{
+  "dataset": "kreviews",
+  "rows": 50,
+  "kerncvs": false,
+  "show_review_time": false,
+  "branches": {
+    "test": {
+      "list": "test/list-test",
+      "models": ["gemma-4", "qwen3.6"],
+      "title": "Test Potential Regressions"
+    },
+    "SLE12-SP5": {
+      "list": "test/list-SLE12-SP5",
+      "models": ["gemma-4", "qwen3.6"],
+      "title": "SLE12-SP5 Potential Regressions"
+    }
+  }
+}

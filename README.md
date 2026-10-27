@@ -112,6 +112,59 @@ These parameters take precedence over stored preferences and script defaults.
 - `--update`: Only update review entries modified in the given git commit range (e.g. `ID1..ID2`), commit list file, or list of commit IDs. Split review subpages will only be generated for the specified/modified commits, while the main index table is fully updated. Newly added commits are appended to the report.
 - `--update-list`: Commit list file or list of commits to update (alias for `--update`).
 
+## Local Web Service
+
+`review_server.py` serves the same pages dynamically instead of writing static files. It uses only the Python standard library, reuses the loaders and templates from `generate_report.py` (run it from the source tree), and serves multiple branches from a single process. Reviews are read from a dataset directory (git tree access is not supported).
+
+```bash
+python3 review_server.py --config server.json [--host 127.0.0.1] [--port 8080] [--ttl 60] \
+    [--certfile cert.pem [--keyfile key.pem]] \
+    [--log-file server.log] [--log-level debug|info|warning|error]
+```
+
+Logs go to stderr, or to the file given by `--log-file` (reopened automatically when rotated by logrotate). `--log-level` sets the minimum level (default: `warning`):
+- `error`: Request failures (with tracebacks).
+- `warning`: Also malformed or timed-out requests.
+- `info`: Also the access log of every request and dropped/failed TLS connections.
+- `debug`: Also cache rebuilds with their timing.
+
+The server speaks plain HTTP by default. Pass `--certfile` (and `--keyfile` unless the key is in the same PEM file) to enable HTTPS as well; both `http://` and `https://` are then served on the same port, distinguished by the first byte of each connection. A self-signed certificate can be created with:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+    -keyout key.pem -out cert.pem -subj /CN=localhost
+```
+
+Browsers warn about self-signed certificates unless they are trusted explicitly.
+
+or simply `make serve`. The config file looks like:
+
+```json
+{
+  "dataset": "kreviews",
+  "rows": 50,
+  "kerncvs": false,
+  "show_review_time": false,
+  "branches": {
+    "SLE12-SP5": {
+      "list": "test/list-SLE12-SP5",
+      "models": ["gemma-4", "qwen3.6"],
+      "title": "SLE12-SP5 Potential Regressions"
+    }
+  }
+}
+```
+
+Relative paths are resolved against the config file location. `dataset`, `rows`, `kerncvs` and `show_review_time` can be overridden per branch.
+
+Served URLs:
+- `/`: List of branches (redirects if only one branch is configured).
+- `/b/<BRANCH>/`: The index table. The branch switcher is generated from the configured branches.
+- `/b/<BRANCH>/reviews/<MODEL_DIR>/<xx>/<SHA>/review.html`: Review subpage, read from the dataset on each request.
+- `/api/<BRANCH>.json`: The index data as JSON.
+
+The collected index data of each branch is cached for `--ttl` seconds, and rebuilt earlier when the commit list file changes. Append `?reload=1` to any URL to force a rebuild. The server binds to `127.0.0.1` by default; it has no authentication, so be careful when binding to other addresses (use HTTPS, or put a reverse proxy in front).
+
 ## Dataset Structure
 
 The tool expects review datasets to follow a git-like object storage format:
