@@ -1422,227 +1422,7 @@ split_html_template = """<!DOCTYPE html>
 </html>
 """
 
-def build_parser():
-    parser = argparse.ArgumentParser(description="Generate kernel review report.")
-    parser.add_argument("--list", help="Commit list file")
-    
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--dataset", help="Database directory")
-    group.add_argument("--git", help="Git repository for dataset")
-    
-    parser.add_argument("--model", action="append", required=True, help="Model directory name (e.g. gpt-oss)")
-    parser.add_argument("--git-commit", default="HEAD", help="Git commit ID to read from (default: HEAD)")
-    parser.add_argument("--title", default="Potential Regressions", help="Report title")
-    parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
-    parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
-    parser.add_argument("--links-file", help="JSON file containing branch to URL mappings for the branch switcher")
-    parser.add_argument("--target-git", help="Git repository for the target code")
-    parser.add_argument("--output", default="report.html", help="Output HTML file")
-    parser.add_argument("--show-review-time", action="store_true", help="Show review time column in the table by default")
-    parser.add_argument("--single-page", action="store_true", help="Generate a single static HTML page (old behavior)")
-    parser.add_argument("--update", action="extend", nargs="+", help="Only update review entries modified in the given git commit range (e.g. ID1..ID2), commit list file, or list of commit IDs")
-    parser.add_argument("--update-list", action="extend", nargs="+", help="Commit list file or list of commits to update (alias for --update)")
-    return parser
-
-def main():
-    parser = build_parser()
-    args = parser.parse_args()
-
-    if not args.list and not args.update and not getattr(args, 'update_list', None):
-        print("Error: Either --list or --update must be specified.")
-        sys.exit(1)
-
-    # Parse branch links if provided
-    branch_links = {}
-    if args.links_file:
-        try:
-            with open(args.links_file, "r", encoding="utf-8") as f:
-                branch_links = json.load(f)
-            if not isinstance(branch_links, dict):
-                print(f"Error: Links file '{args.links_file}' must be a JSON object mapping names to URLs.")
-                sys.exit(1)
-        except Exception as e:
-            print(f"Error: Could not read links file '{args.links_file}': {e}")
-            sys.exit(1)
-
-    # 1. Parse commit list
-    commits = []
-    if args.list:
-        try:
-            with open(args.list, "r", encoding="utf-8") as f:
-                for line in f:
-                    parts = line.strip().split(None, 1)
-                    if len(parts) < 1:
-                        continue
-                    commit_id = parts[0]
-                    subject = parts[1] if len(parts) > 1 else ""
-                    commits.append({"id": commit_id, "subject": subject})
-        except Exception as e:
-            print(f"Error: Could not read commit list file '{args.list}': {e}")
-            sys.exit(1)
-
-    # 2. Collect review data
-    processed_data = []
-    authors = set()
-    
-    repo = None
-    commit_tree = None
-    if args.git:
-        import git
-        try:
-            repo = git.Repo(args.git)
-        except Exception as e:
-            print(f"Error: Could not open git repository '{args.git}': {e}")
-            sys.exit(1)
-        
-        try:
-            git_commit = args.git_commit if args.git_commit else "HEAD"
-            commit_obj = repo.commit(git_commit)
-            commit_tree = commit_obj.tree
-        except Exception as e:
-            print(f"Error: Could not find git commit '{args.git_commit}' in {args.git}: {e}")
-            sys.exit(1)
-
-    # Pre-resolve dataset trees/dirs
-    dataset_sources = {}
-    model_name_to_dir = {}
-    for model_dir_name in args.model:
-        if repo:
-            model_tree = get_git_tree_path(commit_tree, model_dir_name)
-            if not model_tree:
-                print(f"Error: Model directory '{model_dir_name}' not found in commit '{args.git_commit}'.")
-                sys.exit(1)
-            
-            desc_blob = get_git_tree_path(commit_tree, f"{model_dir_name}/description")
-            if not desc_blob:
-                print(f"Error: Description file for model '{model_dir_name}' not found in commit '{args.git_commit}'.")
-                sys.exit(1)
-            
-            model_name = desc_blob.data_stream.read().decode('utf-8').strip()
-            dataset_sources[model_name] = model_tree
-            model_name_to_dir[model_name] = model_dir_name
-        else:
-            model_path = os.path.join(args.dataset, model_dir_name)
-            if not os.path.isdir(model_path):
-                print(f"Error: Model directory '{model_path}' not found.")
-                sys.exit(1)
-            
-            desc_path = os.path.join(model_path, "description")
-            if not os.path.isfile(desc_path):
-                print(f"Error: Description file '{desc_path}' not found.")
-                sys.exit(1)
-                
-            with open(desc_path, "r", encoding="utf-8") as f:
-                model_name = f.read().strip()
-            
-            dataset_sources[model_name] = model_path
-            model_name_to_dir[model_name] = model_dir_name
-
-    update_specs = []
-    if args.update:
-        if isinstance(args.update, str):
-            update_specs.append(args.update)
-        else:
-            update_specs.extend(args.update)
-    if getattr(args, 'update_list', None):
-        if isinstance(args.update_list, str):
-            update_specs.append(args.update_list)
-        else:
-            update_specs.extend(args.update_list)
-
-    modified_commits = set()
-    if update_specs:
-        modified_commits = process_update_spec(
-            update_specs,
-            args.model,
-            dataset_sources=dataset_sources,
-            repo=repo,
-            dataset=args.dataset,
-            commits=commits
-        )
-
-    if not commits:
-        print("Error: No commits to process.")
-        sys.exit(1)
-
-    target_repo = None
-    if args.target_git:
-        import git
-        try:
-            target_repo = git.Repo(args.target_git)
-        except Exception as e:
-            print(f"Error: Could not open target git repository '{args.target_git}': {e}")
-            sys.exit(1)
-
-    for commit in commits:
-        commit_reviews = {}
-        has_any_review = False
-        commit_full_id = None
-        commit_diff = None
-        
-        for model_name, source in dataset_sources.items():
-            # Try to resolve full ID if not already done
-            if not commit_full_id:
-                commit_full_id = resolve_full_id(source, commit["id"])
-            
-            if commit_full_id:
-                data = get_review_data(source, commit_full_id)
-                if data:
-                    committer = None
-                    if target_repo:
-                        if commit_diff is None:
-                            commit_diff = get_commit_diff(target_repo, commit_full_id) or ""
-                        if commit_diff:
-                            data["diff"] = commit_diff
-                        try:
-                            git_commit_obj = target_repo.commit(commit_full_id)
-                            committer_name = git_commit_obj.committer.name
-                            committer_email = git_commit_obj.committer.email
-                            if committer_email:
-                                committer = f"{committer_name} <{committer_email}>"
-                            else:
-                                committer = committer_name
-                            if not commit["subject"] and getattr(git_commit_obj, "summary", None):
-                                commit["subject"] = git_commit_obj.summary
-                        except Exception:
-                            pass
-
-                    if "metadata" not in data and committer:
-                        data["metadata"] = {}
-
-                    if "metadata" in data:
-                        if committer:
-                            data["metadata"]["author"] = committer
-                        if "author" in data["metadata"]:
-                            authors.add(data["metadata"]["author"])
-                        if not commit["subject"] and data["metadata"].get("subject"):
-                            commit["subject"] = data["metadata"]["subject"]
-
-                    if committer and "inline" in data:
-                        if data.get("inline_is_json"):
-                            try:
-                                inline_obj = json.loads(data["inline"])
-                                inline_obj["author"] = committer
-                                data["inline"] = json.dumps(inline_obj)
-                            except Exception:
-                                pass
-                        else:
-                            import re
-                            data["inline"] = re.sub(r'^Author:\s+.*$', f'Author: {committer}', data["inline"], flags=re.MULTILINE)
-
-                    commit_reviews[model_name] = data
-                    has_any_review = True
-        
-        if has_any_review:
-            processed_data.append({
-                "id": commit["id"],
-                "full_id": commit_full_id or commit["id"],
-                "subject": commit["subject"],
-                "reviews": commit_reviews
-            })
-
-    # 3. Generate HTML
-    html_template = """
+INDEX_HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -3071,14 +2851,171 @@ def main():
 </html>
 """
 
-    author_options = "".join([f'<option value="{html.escape(a)}">{html.escape(a)}</option>' for a in sorted(authors)])
-    
-    branch_switcher_html = ""
-    if branch_links:
-        options_html = '<option value="" disabled selected style="display:none;">Switch Branch...</option>'
-        for name, url in branch_links.items():
-            options_html += f'<option value="{html.escape(url)}">{html.escape(name)}</option>'
-        branch_switcher_html = f"""
+KERNEL_COMMIT_URLS = {
+    False: "https://github.com/SUSE/kernel/commit/",
+    True: "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=",
+}
+
+KS_COMMIT_URLS = {
+    False: "https://github.com/SUSE/kernel-source/commit/",
+    True: "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=",
+}
+
+def parse_commit_list(path):
+    """Parse a commit list file; each line is 'sha [subject]'."""
+    commits = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            parts = line.strip().split(None, 1)
+            if len(parts) < 1:
+                continue
+            commit_id = parts[0]
+            subject = parts[1] if len(parts) > 1 else ""
+            commits.append({"id": commit_id, "subject": subject})
+    return commits
+
+def load_model_sources(dataset, model_dirs):
+    """Resolve model directories in a dataset directory.
+
+    Returns (dataset_sources, model_name_to_dir), where dataset_sources maps
+    the model display name to its directory path.  Raises ValueError on errors.
+    """
+    dataset_sources = {}
+    model_name_to_dir = {}
+    for model_dir_name in model_dirs:
+        model_path = os.path.join(dataset, model_dir_name)
+        if not os.path.isdir(model_path):
+            raise ValueError(f"Model directory '{model_path}' not found.")
+
+        desc_path = os.path.join(model_path, "description")
+        if not os.path.isfile(desc_path):
+            raise ValueError(f"Description file '{desc_path}' not found.")
+
+        with open(desc_path, "r", encoding="utf-8") as f:
+            model_name = f.read().strip()
+
+        dataset_sources[model_name] = model_path
+        model_name_to_dir[model_name] = model_dir_name
+    return dataset_sources, model_name_to_dir
+
+def collect_review_data(commits, dataset_sources, target_repo=None):
+    """Collect the reviews of all models for the given commits.
+
+    Returns (processed_data, authors).  Commits without any review are skipped.
+    """
+    processed_data = []
+    authors = set()
+
+    for commit in commits:
+        commit_reviews = {}
+        has_any_review = False
+        commit_full_id = None
+        commit_diff = None
+
+        for model_name, source in dataset_sources.items():
+            # Try to resolve full ID if not already done
+            if not commit_full_id:
+                commit_full_id = resolve_full_id(source, commit["id"])
+
+            if commit_full_id:
+                data = get_review_data(source, commit_full_id)
+                if data:
+                    committer = None
+                    if target_repo:
+                        if commit_diff is None:
+                            commit_diff = get_commit_diff(target_repo, commit_full_id) or ""
+                        if commit_diff:
+                            data["diff"] = commit_diff
+                        try:
+                            git_commit_obj = target_repo.commit(commit_full_id)
+                            committer_name = git_commit_obj.committer.name
+                            committer_email = git_commit_obj.committer.email
+                            if committer_email:
+                                committer = f"{committer_name} <{committer_email}>"
+                            else:
+                                committer = committer_name
+                            if not commit["subject"] and getattr(git_commit_obj, "summary", None):
+                                commit["subject"] = git_commit_obj.summary
+                        except Exception:
+                            pass
+
+                    if "metadata" not in data and committer:
+                        data["metadata"] = {}
+
+                    if "metadata" in data:
+                        if committer:
+                            data["metadata"]["author"] = committer
+                        if "author" in data["metadata"]:
+                            authors.add(data["metadata"]["author"])
+                        if not commit["subject"] and data["metadata"].get("subject"):
+                            commit["subject"] = data["metadata"]["subject"]
+
+                    if committer and "inline" in data:
+                        if data.get("inline_is_json"):
+                            try:
+                                inline_obj = json.loads(data["inline"])
+                                inline_obj["author"] = committer
+                                data["inline"] = json.dumps(inline_obj)
+                            except Exception:
+                                pass
+                        else:
+                            import re
+                            data["inline"] = re.sub(r'^Author:\s+.*$', f'Author: {committer}', data["inline"], flags=re.MULTILINE)
+
+                    commit_reviews[model_name] = data
+                    has_any_review = True
+
+        if has_any_review:
+            processed_data.append({
+                "id": commit["id"],
+                "full_id": commit_full_id or commit["id"],
+                "subject": commit["subject"],
+                "reviews": commit_reviews
+            })
+
+    return processed_data, authors
+
+def review_page_path(model_dir_name, full_id):
+    """Relative path of a review subpage from the index page."""
+    return f"reviews/{model_dir_name}/{full_id[:2]}/{full_id}/review.html"
+
+def prune_for_index(processed_data, model_name_to_dir):
+    """Reduce the review data to what the index page needs in split mode."""
+    pruned_processed_data = []
+    for item in processed_data:
+        pruned_item = {
+            "id": item["id"],
+            "full_id": item["full_id"],
+            "subject": item["subject"],
+            "reviews": {}
+        }
+        for model_name, review in item["reviews"].items():
+            model_dir_name = model_name_to_dir[model_name]
+            relative_url = review_page_path(model_dir_name, item["full_id"])
+
+            pruned_review = {
+                "metadata": review.get("metadata"),
+                "url": relative_url
+            }
+            if "downstream_only" in review:
+                pruned_review["downstream_only"] = review["downstream_only"]
+            if "pre_verification" in review:
+                pruned_review["pre_verification"] = True
+            if "verified_result" in review:
+                pruned_review["verified_result"] = True
+
+            pruned_item["reviews"][model_name] = pruned_review
+        pruned_processed_data.append(pruned_item)
+    return pruned_processed_data
+
+def render_branch_switcher(branch_links):
+    """Render the branch switcher from a {name: url} mapping."""
+    if not branch_links:
+        return ""
+    options_html = '<option value="" disabled selected style="display:none;">Switch Branch...</option>'
+    for name, url in branch_links.items():
+        options_html += f'<option value="{html.escape(url)}">{html.escape(name)}</option>'
+    return f"""
         <span class="branch-switcher" style="margin-left: 20px;">
             <label for="branchSelect">Branch:</label>
             <select id="branchSelect" onchange="if(this.value) window.location.href=this.value;" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border); padding: 4px;">
@@ -3087,100 +3024,219 @@ def main():
         </span>
         """
 
-    datasets_list = list(dataset_sources.keys())
+def render_index_html(title, authors, branch_links, index_data, datasets_list,
+                      rows, kerncvs=False, show_review_time=False):
+    """Render the index page; index_data is embedded as compressed JSON."""
+    author_options = "".join([f'<option value="{html.escape(a)}">{html.escape(a)}</option>' for a in sorted(authors)])
+
+    json_data = json.dumps(index_data, separators=(',', ':'))
+    compressed_data = base64.b64encode(zlib.compress(json_data.encode('utf-8'))).decode('ascii')
+
+    # Replace the {css_styles} placeholder in the template with the raw CSS styles
+    templated_html = INDEX_HTML_TEMPLATE.replace("{css_styles}", CSS_STYLES)
+
+    return templated_html.format(
+        title=html.escape(title),
+        author_options=author_options,
+        branch_switcher_html=render_branch_switcher(branch_links),
+        compressed_json=compressed_data,
+        datasets_list=json.dumps(datasets_list),
+        rows_per_page=rows,
+        use_kerncvs="true" if kerncvs else "false",
+        show_review_time="true" if show_review_time else "false"
+    )
+
+def render_review_html(model_name, commit_id, subject, review, back_link, kerncvs=False):
+    """Render a review subpage."""
+    split_css = CSS_STYLES.replace("{{", "{").replace("}}", "}")
+
+    review_data = {
+        "model_name": model_name,
+        "commit_id": commit_id,
+        "subject": subject,
+        "review": review
+    }
+    review_data_json = json.dumps(review_data)
+
+    split_html = split_html_template.replace("{title}", html.escape(f"{model_name} Review - {commit_id[:12]}"))
+    split_html = split_html.replace("{css_styles}", split_css)
+    split_html = split_html.replace("{back_link}", back_link)
+    split_html = split_html.replace("{review_data_json}", review_data_json)
+    split_html = split_html.replace("{commit_base_url}", KERNEL_COMMIT_URLS[bool(kerncvs)])
+    split_html = split_html.replace("{ks_base_url}", KS_COMMIT_URLS[bool(kerncvs)])
+    return split_html
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="Generate kernel review report.")
+    parser.add_argument("--list", help="Commit list file")
     
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--dataset", help="Database directory")
+    group.add_argument("--git", help="Git repository for dataset")
+    
+    parser.add_argument("--model", action="append", required=True, help="Model directory name (e.g. gpt-oss)")
+    parser.add_argument("--git-commit", default="HEAD", help="Git commit ID to read from (default: HEAD)")
+    parser.add_argument("--title", default="Potential Regressions", help="Report title")
+    parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
+    parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
+    parser.add_argument("--links-file", help="JSON file containing branch to URL mappings for the branch switcher")
+    parser.add_argument("--target-git", help="Git repository for the target code")
+    parser.add_argument("--output", default="report.html", help="Output HTML file")
+    parser.add_argument("--show-review-time", action="store_true", help="Show review time column in the table by default")
+    parser.add_argument("--single-page", action="store_true", help="Generate a single static HTML page (old behavior)")
+    parser.add_argument("--update", action="extend", nargs="+", help="Only update review entries modified in the given git commit range (e.g. ID1..ID2), commit list file, or list of commit IDs")
+    parser.add_argument("--update-list", action="extend", nargs="+", help="Commit list file or list of commits to update (alias for --update)")
+    return parser
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if not args.list and not args.update and not getattr(args, 'update_list', None):
+        print("Error: Either --list or --update must be specified.")
+        sys.exit(1)
+
+    # Parse branch links if provided
+    branch_links = {}
+    if args.links_file:
+        try:
+            with open(args.links_file, "r", encoding="utf-8") as f:
+                branch_links = json.load(f)
+            if not isinstance(branch_links, dict):
+                print(f"Error: Links file '{args.links_file}' must be a JSON object mapping names to URLs.")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: Could not read links file '{args.links_file}': {e}")
+            sys.exit(1)
+
+    # 1. Parse commit list
+    commits = []
+    if args.list:
+        try:
+            commits = parse_commit_list(args.list)
+        except Exception as e:
+            print(f"Error: Could not read commit list file '{args.list}': {e}")
+            sys.exit(1)
+
+    # 2. Collect review data
+    repo = None
+    commit_tree = None
+    if args.git:
+        import git
+        try:
+            repo = git.Repo(args.git)
+        except Exception as e:
+            print(f"Error: Could not open git repository '{args.git}': {e}")
+            sys.exit(1)
+
+        try:
+            git_commit = args.git_commit if args.git_commit else "HEAD"
+            commit_obj = repo.commit(git_commit)
+            commit_tree = commit_obj.tree
+        except Exception as e:
+            print(f"Error: Could not find git commit '{args.git_commit}' in {args.git}: {e}")
+            sys.exit(1)
+
+    # Pre-resolve dataset trees/dirs
+    if repo:
+        dataset_sources = {}
+        model_name_to_dir = {}
+        for model_dir_name in args.model:
+            model_tree = get_git_tree_path(commit_tree, model_dir_name)
+            if not model_tree:
+                print(f"Error: Model directory '{model_dir_name}' not found in commit '{args.git_commit}'.")
+                sys.exit(1)
+
+            desc_blob = get_git_tree_path(commit_tree, f"{model_dir_name}/description")
+            if not desc_blob:
+                print(f"Error: Description file for model '{model_dir_name}' not found in commit '{args.git_commit}'.")
+                sys.exit(1)
+
+            model_name = desc_blob.data_stream.read().decode('utf-8').strip()
+            dataset_sources[model_name] = model_tree
+            model_name_to_dir[model_name] = model_dir_name
+    else:
+        try:
+            dataset_sources, model_name_to_dir = load_model_sources(args.dataset, args.model)
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    update_specs = []
+    if args.update:
+        if isinstance(args.update, str):
+            update_specs.append(args.update)
+        else:
+            update_specs.extend(args.update)
+    if getattr(args, 'update_list', None):
+        if isinstance(args.update_list, str):
+            update_specs.append(args.update_list)
+        else:
+            update_specs.extend(args.update_list)
+
+    modified_commits = set()
+    if update_specs:
+        modified_commits = process_update_spec(
+            update_specs,
+            args.model,
+            dataset_sources=dataset_sources,
+            repo=repo,
+            dataset=args.dataset,
+            commits=commits
+        )
+
+    if not commits:
+        print("Error: No commits to process.")
+        sys.exit(1)
+
+    target_repo = None
+    if args.target_git:
+        import git
+        try:
+            target_repo = git.Repo(args.target_git)
+        except Exception as e:
+            print(f"Error: Could not open target git repository '{args.target_git}': {e}")
+            sys.exit(1)
+
+    processed_data, authors = collect_review_data(commits, dataset_sources, target_repo)
+
+    # 3. Generate HTML
+    datasets_list = list(dataset_sources.keys())
+
     # Generate split pages if not in single page mode
     if not args.single_page:
         output_dir = os.path.dirname(args.output) or "."
+        output_filename = os.path.basename(args.output)
+        back_link = f"../../../../{output_filename}"
         for item in processed_data:
-            commit_id = item["id"]
             full_id = item["full_id"]
-            subject = item["subject"]
-            prefix = full_id[:2]
-            
+
             for model_name, review in item["reviews"].items():
                 model_dir_name = model_name_to_dir[model_name]
-                
+
                 if update_specs and (model_dir_name, full_id.lower()) not in modified_commits and full_id.lower() not in modified_commits and item["id"].lower() not in modified_commits:
                     continue
-                
-                split_dir = os.path.join(output_dir, "reviews", model_dir_name, prefix, full_id)
-                os.makedirs(split_dir, exist_ok=True)
-                
-                output_filename = os.path.basename(args.output)
-                back_link = f"../../../../{output_filename}"
-                
-                split_css = CSS_STYLES.replace("{{", "{").replace("}}", "}")
-                
-                review_data = {
-                    "model_name": model_name,
-                    "commit_id": commit_id,
-                    "subject": subject,
-                    "review": review
-                }
-                review_data_json = json.dumps(review_data)
-                
-                split_html = split_html_template.replace("{title}", html.escape(f"{model_name} Review - {commit_id[:12]}"))
-                split_html = split_html.replace("{css_styles}", split_css)
-                split_html = split_html.replace("{back_link}", back_link)
-                split_html = split_html.replace("{review_data_json}", review_data_json)
-                split_html = split_html.replace("{commit_base_url}", "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=" if args.kerncvs else "https://github.com/SUSE/kernel/commit/")
-                split_html = split_html.replace("{ks_base_url}", "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=" if args.kerncvs else "https://github.com/SUSE/kernel-source/commit/")
-                
-                split_file_path = os.path.join(split_dir, "review.html")
+
+                split_file_path = os.path.join(output_dir, review_page_path(model_dir_name, full_id))
+                os.makedirs(os.path.dirname(split_file_path), exist_ok=True)
+
+                split_html = render_review_html(model_name, item["id"], item["subject"],
+                                                review, back_link, args.kerncvs)
                 with open(split_file_path, "w", encoding="utf-8") as sf:
                     sf.write(split_html)
-        
-        pruned_processed_data = []
-        for item in processed_data:
-            pruned_item = {
-                "id": item["id"],
-                "full_id": item["full_id"],
-                "subject": item["subject"],
-                "reviews": {}
-            }
-            for model_name, review in item["reviews"].items():
-                model_dir_name = model_name_to_dir[model_name]
-                prefix = item["full_id"][:2]
-                relative_url = f"reviews/{model_dir_name}/{prefix}/{item['full_id']}/review.html"
-                
-                pruned_review = {
-                    "metadata": review.get("metadata"),
-                    "url": relative_url
-                }
-                if "downstream_only" in review:
-                    pruned_review["downstream_only"] = review["downstream_only"]
-                if "pre_verification" in review:
-                    pruned_review["pre_verification"] = True
-                if "verified_result" in review:
-                    pruned_review["verified_result"] = True
-                
-                pruned_item["reviews"][model_name] = pruned_review
-            pruned_processed_data.append(pruned_item)
-            
-        json_data = json.dumps(pruned_processed_data, separators=(',', ':'))
+
+        index_data = prune_for_index(processed_data, model_name_to_dir)
     else:
-        json_data = json.dumps(processed_data, separators=(',', ':'))
+        index_data = processed_data
 
-    compressed_data = base64.b64encode(zlib.compress(json_data.encode('utf-8'))).decode('ascii')
-
-    # Replace the {css_styles} placeholder in html_template with the raw CSS styles
-    templated_html = html_template.replace("{css_styles}", CSS_STYLES)
-
-    full_html = templated_html.format(
-        title=html.escape(args.title),
-        author_options=author_options,
-        branch_switcher_html=branch_switcher_html,
-        compressed_json=compressed_data,
-        datasets_list=json.dumps(datasets_list),
-        rows_per_page=args.rows,
-        use_kerncvs="true" if args.kerncvs else "false",
-        show_review_time="true" if args.show_review_time else "false"
-    )
+    full_html = render_index_html(args.title, authors, branch_links, index_data,
+                                  datasets_list, args.rows, args.kerncvs,
+                                  args.show_review_time)
 
     with open(args.output, "w") as f:
         f.write(full_html)
-    
+
     print(f"Report generated: {args.output}")
 
 if __name__ == "__main__":
