@@ -88,6 +88,12 @@ class TestReviewServer(unittest.TestCase):
         self.assertIn('href="/b/test/"', body)
         self.assertIn(f'"commit_id": "{SHA}"', body)
 
+    def test_review_page_without_prefix_or_abbreviated(self):
+        for path in (f"gemma-4/{SHA}", f"gemma-4/27/{SHA[:12]}", f"gemma-4/{SHA[:12]}"):
+            status, body = self.get(f"/b/test/reviews/{path}/review.html")
+            self.assertEqual(status, 200, path)
+            self.assertIn(f'"commit_id": "{SHA}"', body)
+
     def test_review_model_not_in_branch(self):
         status, _ = self.get(f"/b/other/reviews/qwen3.6-q4/27/{SHA}/review.html")
         self.assertEqual(status, 404)
@@ -95,7 +101,10 @@ class TestReviewServer(unittest.TestCase):
     def test_invalid_requests(self):
         self.assertEqual(self.get("/b/unknown/")[0], 404)
         self.assertEqual(self.get("/api/unknown.json")[0], 404)
-        self.assertEqual(self.get("/b/test/reviews/gemma-4/27/27bff058/review.html")[0], 400)
+        self.assertEqual(self.get("/b/test/reviews/gemma-4/27/27b/review.html")[0], 400)
+        self.assertEqual(self.get("/b/test/reviews/gemma-4/27/zzzzzzzz/review.html")[0], 400)
+        self.assertEqual(self.get("/b/test/reviews/gemma-4/27/27bff058/review.html")[0], 200)
+        self.assertEqual(self.get("/b/test/reviews/gemma-4/0000000/review.html")[0], 404)
         self.assertEqual(self.get(f"/b/test/reviews/gemma-4/28/{SHA}/review.html")[0], 400)
         self.assertEqual(self.get("/b/test/reviews/gemma-4/00/" + "0" * 40 + "/review.html")[0], 404)
         self.assertEqual(self.get("/b/test/reviews/..%2F..%2Fetc/27/" + SHA + "/review.html")[0], 404)

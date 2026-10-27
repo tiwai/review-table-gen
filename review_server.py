@@ -51,7 +51,7 @@ from generate_report import (
     render_review_html,
 )
 
-SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+ABBREV_RE = re.compile(r"^[0-9a-f]{4,40}$")      # full or abbreviated SHA ID
 LOG_LEVELS = ("debug", "info", "warning", "error")
 DEFAULT_CACHE_DIR = "~/.cache/review_server"
 DISK_CACHE_VERSION = 1      # bump when the on-disk format changes
@@ -368,8 +368,10 @@ class Handler(BaseHTTPRequestHandler):
                 elif rest == [""]:
                     self.send_cached(self.cache.get(name, force), "index_html",
                                      "text/html; charset=utf-8")
-                elif len(rest) == 5 and rest[0] == "reviews" and rest[4] == "review.html":
-                    self.serve_review(name, rest[1], rest[2], rest[3], force)
+                elif len(rest) in (4, 5) and rest[0] == "reviews" and rest[-1] == "review.html":
+                    # The 2-letter directory is optional: reviews/<model>[/<xx>]/<sha>/
+                    prefix = rest[2] if len(rest) == 5 else None
+                    self.serve_review(name, rest[1], prefix, rest[-2], force)
                 else:
                     self.fail(404, "Not found")
             else:
@@ -390,12 +392,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def serve_review(self, name, model_dir, prefix, sha, force):
         sha = sha.lower()
-        if not SHA_RE.match(sha) or prefix != sha[:2]:
+        if not ABBREV_RE.match(sha) or (prefix is not None and prefix != sha[:2]):
             return self.fail(400, "Invalid commit ID")
         entry = self.cache.get(name, force)
         if model_dir not in entry["models"]:
             return self.fail(404, f"Unknown model '{model_dir}'")
         item = entry["commits"].get(sha)
+        if item is None and len(sha) < 40:
+            matches = [k for k in entry["commits"] if k.startswith(sha)]
+            if len(matches) > 1:
+                return self.fail(400, f"Ambiguous commit ID {sha}")
+            if matches:
+                sha = matches[0]
+                item = entry["commits"][sha]
         if item is None:
             return self.fail(404, f"Commit {sha} is not in branch '{name}'")
         model_name, model_path = entry["models"][model_dir]
