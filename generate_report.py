@@ -649,6 +649,133 @@ CSS_STYLES = """
         .review-link {{ text-decoration: underline; color: var(--link-color); }}
 """
 
+TEXT_EXPORT_JS = r"""
+        function downloadBlob(content, mimeType, fileName) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function indentText(text, prefix) {
+            return String(text).split('\n').map(l => l ? prefix + l : l).join('\n');
+        }
+
+        function verifiedFindingFields(f) {
+            return {
+                status: f['re-verification-status'] || f['status'] || '',
+                comment: f['re-verification-comment'] || f['reason'] || '',
+                fixStatus: f['fix-status'] || '',
+                futureFix: f['future-fix'] || ''
+            };
+        }
+
+        function inlineToText(jsonStr, verifiedStr) {
+            let data, vd = null;
+            try { data = JSON.parse(jsonStr); } catch (e) { return jsonStr; }
+            if (verifiedStr) {
+                try { vd = JSON.parse(verifiedStr); } catch (e) {}
+            }
+            const out = [];
+            if (vd) {
+                const by = vd['re-verified-by'] || vd['verified-by'] || '';
+                const date = vd['re-verified-date'] || vd['verified-date'] || '';
+                const summary = vd['re-verification-summary'] || vd['summary'] || '';
+                let line = 'Re-Verified';
+                if (by) line += ' by ' + by;
+                if (date) line += ' - ' + date;
+                out.push(line);
+                if (summary) out.push(summary);
+                if (vd['future-fix']) out.push('Future-fix: ' + vd['future-fix']);
+                out.push('');
+            }
+            if (data.commit) out.push('commit ' + data.commit);
+            if (data.author) out.push('Author: ' + data.author);
+            if (data.subject) out.push('Subject: ' + data.subject);
+            if (data['distro-commit']) out.push('distro-commit: ' + data['distro-commit']);
+            const up = data['upstream-commit'] || data['upstream_commit'];
+            if (up) out.push('Git-commit: ' + up);
+            const fixed = data['issues-fixed'] !== undefined ? data['issues-fixed']
+                : (vd ? vd['issues-fixed'] : undefined);
+            if (fixed !== undefined) out.push('Issues-fixed: ' + fixed);
+            if (data.backport) {
+                const bp = data.backport;
+                out.push('', 'Backport Info:');
+                if (bp.upstream) out.push('  Upstream: ' + bp.upstream);
+                if (bp.status) out.push('  Status: ' + bp.status);
+                if (bp.summary) out.push('  Summary: ' + bp.summary);
+            }
+            if (data.summary) out.push('', 'Summary:', indentText(data.summary, '  '));
+            const stats = [
+                ['review-time-seconds', 'Review-time', ' seconds'], ['model', 'Review-model', ''],
+                ['input-tokens', 'Input-tokens', ''], ['output-tokens', 'Output-tokens', ''],
+                ['total-tokens', 'Total-tokens', '']
+            ];
+            const statLines = stats.filter(([k]) => data[k]).map(([k, l, u]) => l + ': ' + data[k] + u);
+            if (statLines.length) out.push('', ...statLines);
+
+            if (Array.isArray(data.findings) && data.findings.length > 0) {
+                out.push('', 'Findings:');
+                data.findings.forEach((f, idx) => {
+                    const vf = (vd && vd.findings && vd.findings[idx]) || {};
+                    const v = verifiedFindingFields(Object.assign({}, f, vf));
+                    out.push('', '[Finding ' + (idx + 1) + '] - ' + (f.category || 'General') + ' - ' + (f.type || 'Issue'));
+                    out.push('Severity: ' + (f.severity || 'N/A'));
+                    out.push('Confidence: ' + (f.confidence || 'N/A'));
+                    if (v.status) out.push('Re-verification: ' + v.status);
+                    if (v.fixStatus) out.push('Fix-status: ' + v.fixStatus);
+                    if (v.futureFix) out.push('Future-fix: ' + v.futureFix);
+                    out.push('Message:', indentText(f.message || '', '  '));
+                    if (f.evidence) out.push('Evidence:', indentText(f.evidence, '  '));
+                    if (v.comment) out.push('Re-verification comment:', indentText(v.comment, '  '));
+                });
+            }
+            return out.join('\n') + '\n';
+        }
+
+        function verifiedResultToText(jsonStr) {
+            let data;
+            try { data = JSON.parse(jsonStr); } catch (e) { return jsonStr; }
+            const out = [];
+            for (const [k, v] of Object.entries(data)) {
+                if (k !== 'findings' && v !== null && typeof v !== 'object') out.push(k + ': ' + v);
+            }
+            if (Array.isArray(data.findings) && data.findings.length > 0) {
+                out.push('', 'Findings Re-Verification:');
+                data.findings.forEach((f, idx) => {
+                    const v = verifiedFindingFields(f);
+                    out.push('', '[Finding ' + (idx + 1) + ']');
+                    if (v.status) out.push('Status: ' + v.status);
+                    if (v.fixStatus) out.push('Fix-status: ' + v.fixStatus);
+                    if (v.futureFix) out.push('Future-fix: ' + v.futureFix);
+                    const skip = ['re-verification-status', 'status', 're-verification-comment',
+                                  'reason', 'fix-status', 'future-fix'];
+                    for (const [k, val] of Object.entries(f)) {
+                        if (!skip.includes(k) && val !== null && typeof val !== 'object') out.push(k + ': ' + val);
+                    }
+                    if (v.comment) out.push('Comment:', indentText(v.comment, '  '));
+                });
+            }
+            return out.join('\n') + '\n';
+        }
+
+        function saveInlineText() {
+            if (!activeReview || !activeReview.review.inline) return;
+            const r = activeReview.review;
+            const text = r.inline_is_json ? inlineToText(r.inline, r.verified_result || null) : r.inline;
+            downloadBlob(text, 'text/plain', 'review-inline.txt');
+        }
+
+        function saveVerifiedResultText() {
+            if (!activeReview || !activeReview.review.verified_result) return;
+            downloadBlob(verifiedResultToText(activeReview.review.verified_result),
+                         'text/plain', 'verified-result.txt');
+        }
+"""
+
 split_html_template = """<!DOCTYPE html>
 <html>
 <head>
@@ -684,6 +811,7 @@ split_html_template = """<!DOCTYPE html>
             <div id="verifiedResultBody"></div>
             <div class="btn-container" style="margin-top: 10px;">
                 <button class="btn" onclick="saveVerifiedResultContent()">Save Verified Result JSON</button>
+                <button class="btn" onclick="saveVerifiedResultText()">Save Verified Result Text</button>
             </div>
         </div>
     </div>
@@ -716,6 +844,7 @@ split_html_template = """<!DOCTYPE html>
 
     <div class="btn-container" style="margin-top: 20px; border-top: 1px solid var(--table-border); padding-top: 15px;">
         <button class="btn" onclick="saveContent()">Save Inline Review</button>
+        <button class="btn" onclick="saveInlineText()">Save Inline Review Text</button>
     </div>
 
     <script>
@@ -1244,6 +1373,8 @@ split_html_template = """<!DOCTYPE html>
             }
         }
 
+        /*TEXT_EXPORT_JS*/
+
         function saveContent() {
             if (!activeReview || !activeReview.review.inline) return;
             const content = activeReview.review.inline;
@@ -1588,6 +1719,7 @@ INDEX_HTML_TEMPLATE = """
             <div id="modalBody"></div>
             <div class="btn-container">
                 <button class="btn" onclick="saveContent()">Save</button>
+                <button class="btn" onclick="saveInlineText()">Save Text</button>
                 <button id="verifiedResultBtn" class="btn btn-secondary" style="display:none">Verified Result</button>
                 <button id="preVerifyBtn" class="btn btn-secondary" style="display:none">Pre-Verified Issues</button>
                 <button class="btn btn-secondary" onclick="closeModal('reviewModal')">Close</button>
@@ -1615,6 +1747,7 @@ INDEX_HTML_TEMPLATE = """
             <div id="verifiedResultBody" style="margin-bottom: 10px; border: 1px solid var(--table-border); padding: 10px; background: var(--inline-view-bg); max-height: 500px; overflow-y: auto;"></div>
             <div class="btn-container">
                 <button class="btn" onclick="saveVerifiedResultContent()">Save</button>
+                <button class="btn" onclick="saveVerifiedResultText()">Save Text</button>
                 <button class="btn btn-secondary" onclick="closeModal('verifiedResultModal')">Close</button>
             </div>
         </div>
@@ -2779,6 +2912,8 @@ INDEX_HTML_TEMPLATE = """
             document.getElementById(id).style.display = 'none';
         }}
 
+        /*TEXT_EXPORT_JS*/
+
         function saveContent() {{
             if (!activeReview || !activeReview.review.inline) return;
             const content = activeReview.review.inline;
@@ -3035,7 +3170,7 @@ def render_index_html(title, authors, branch_links, index_data, datasets_list,
     # Replace the {css_styles} placeholder in the template with the raw CSS styles
     templated_html = INDEX_HTML_TEMPLATE.replace("{css_styles}", CSS_STYLES)
 
-    return templated_html.format(
+    rendered = templated_html.format(
         title=html.escape(title),
         author_options=author_options,
         branch_switcher_html=render_branch_switcher(branch_links),
@@ -3045,6 +3180,7 @@ def render_index_html(title, authors, branch_links, index_data, datasets_list,
         use_kerncvs="true" if kerncvs else "false",
         show_review_time="true" if show_review_time else "false"
     )
+    return rendered.replace("/*TEXT_EXPORT_JS*/", TEXT_EXPORT_JS)
 
 def render_review_html(model_name, commit_id, subject, review, back_link, kerncvs=False):
     """Render a review subpage."""
@@ -3062,6 +3198,7 @@ def render_review_html(model_name, commit_id, subject, review, back_link, kerncv
     split_html = split_html.replace("{css_styles}", split_css)
     split_html = split_html.replace("{back_link}", back_link)
     split_html = split_html.replace("{review_data_json}", review_data_json)
+    split_html = split_html.replace("/*TEXT_EXPORT_JS*/", TEXT_EXPORT_JS)
     split_html = split_html.replace("{commit_base_url}", KERNEL_COMMIT_URLS[bool(kerncvs)])
     split_html = split_html.replace("{ks_base_url}", KS_COMMIT_URLS[bool(kerncvs)])
     return split_html
