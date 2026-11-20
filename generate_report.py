@@ -1596,8 +1596,12 @@ INDEX_HTML_TEMPLATE = """
 
     <div class="controls-container">
         <div id="paginationContainerTop" class="pagination"></div>
-        
+
         <div class="theme-switcher">
+            <button class="btn btn-secondary" onclick="exportMarkers()" title="Save the markers stored in this browser to a JSON file">Export markers</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('importMarkersInput').click()" title="Load markers from a JSON file exported earlier">Import markers</button>
+            <input type="file" id="importMarkersInput" accept=".json,application/json" style="display: none;" onchange="importMarkers(this.files[0]); this.value = '';">
+            <span style="margin-left: 20px;"></span>
             <span>Theme:</span>
             <select class="themeSelect" onchange="setTheme(this.value)" style="background: var(--table-bg); color: var(--text-color); border: 1px solid var(--table-border);">
                 <option value="light">Light</option>
@@ -1656,6 +1660,10 @@ INDEX_HTML_TEMPLATE = """
                 <div class="legend-item">
                     <span class="legend-swatch" style="opacity: 0.5;">—</span>
                     <span><strong>Unreviewed</strong>: Default state. Click cell to cycle (Unreviewed &rarr; ✅ &rarr; ❌)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-swatch">💾</span>
+                    <span>Markers are kept in this browser only. Use <strong>Export/Import markers</strong> to move them to another machine or host.</span>
                 </div>
             </div>
             <div class="legend-group">
@@ -1794,14 +1802,110 @@ INDEX_HTML_TEMPLATE = """
 
         let showReviewTime = {show_review_time};
 
+        // Marker states: add new kinds here (and to STATE_CYCLE to make them clickable).
+        const STATE_ICONS = {{ ok: '✅', bad: '❌' }};
+        const STATE_CYCLE = ['unreviewed', 'ok', 'bad'];
+        // localStorage keys exported/imported as markers (extensible).
+        const MARKER_STORAGE_KEYS = ['commitStates'];
+        const MARKERS_FORMAT = 'review-markers';
+        const MARKERS_VERSION = 1;
+
+        function stateIcon(state) {{
+            if (!state || state === 'unreviewed') return '';
+            return STATE_ICONS[state] || ('[' + state + ']');
+        }}
+
+        function exportMarkers() {{
+            const markerData = {{ commitStates: commitStates }};
+            const data = {{}};
+            MARKER_STORAGE_KEYS.forEach(k => {{ data[k] = markerData[k]; }});
+            const doc = {{
+                format: MARKERS_FORMAT,
+                version: MARKERS_VERSION,
+                exported: new Date().toISOString(),
+                data: data
+            }};
+            const blob = new Blob([JSON.stringify(doc, null, 2) + '\\n'], {{type: 'application/json'}});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'review-markers-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }}
+
+        async function importMarkers(file) {{
+            if (!file) return;
+            let doc;
+            try {{
+                doc = JSON.parse(await file.text());
+            }} catch (e) {{
+                alert('Import failed: not a valid JSON file (' + e.message + ')');
+                return;
+            }}
+            if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {{
+                alert('Import failed: unexpected file content');
+                return;
+            }}
+            let data;
+            let note = '';
+            if (doc.format === MARKERS_FORMAT && doc.data && typeof doc.data === 'object') {{
+                data = doc.data;
+                if (typeof doc.version === 'number' && doc.version > MARKERS_VERSION) {{
+                    note += '\\nWarning: file version ' + doc.version + ' is newer than supported (' + MARKERS_VERSION + ').';
+                }}
+            }} else if (doc.format === undefined && doc.data === undefined) {{
+                data = {{ commitStates: doc }};  // bare {{sha: state}} map
+            }} else {{
+                alert('Import failed: not a ' + MARKERS_FORMAT + ' file');
+                return;
+            }}
+
+            const imported = {{}};
+            let count = 0, skipped = 0;
+            const unknownKeys = Object.keys(data).filter(k => !MARKER_STORAGE_KEYS.includes(k));
+            const incoming = data.commitStates;
+            if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {{
+                Object.keys(incoming).forEach(id => {{
+                    const st = incoming[id];
+                    if (/^[0-9a-f]{{40}}$/i.test(id) && typeof st === 'string' && st !== '' && st !== 'unreviewed') {{
+                        imported[id.toLowerCase()] = st;
+                        count++;
+                    }} else {{
+                        skipped++;
+                    }}
+                }});
+            }} else if (incoming !== undefined) {{
+                skipped++;
+            }}
+            if (count === 0) {{
+                alert('Nothing to import (' + skipped + ' invalid entries).' + note);
+                return;
+            }}
+
+            if (!confirm('Import ' + count + ' marker(s)?\\n\\nOK = continue, Cancel = abort')) return;
+            const merge = confirm('Merge with existing markers?\\n\\nOK = Merge (imported entries win on conflict)\\nCancel = Replace all existing markers');
+            commitStates = merge ? Object.assign({{}}, commitStates, imported) : imported;
+            try {{
+                localStorage.setItem('commitStates', JSON.stringify(commitStates));
+            }} catch (e) {{
+                console.warn('localStorage is not available:', e);
+            }}
+            renderTable();
+            alert('Imported ' + count + ' marker(s) (' + (merge ? 'merged' : 'replaced') + ').'
+                + (skipped ? '\\nSkipped invalid entries: ' + skipped : '')
+                + (unknownKeys.length ? '\\nIgnored unknown keys: ' + unknownKeys.join(', ') : '') + note);
+        }}
+
         function toggleCommitState(commitId, event) {{
             if (event) event.stopPropagation();
             const currentState = commitStates[commitId] || 'unreviewed';
-            let newState = 'ok';
-            if (currentState === 'unreviewed') newState = 'ok';
-            else if (currentState === 'ok') newState = 'bad';
-            else if (currentState === 'bad') newState = 'unreviewed';
-            
+            const idx = STATE_CYCLE.indexOf(currentState);
+            // Unknown (imported) states are not in the cycle; a click clears them.
+            const newState = STATE_CYCLE[(idx + 1) % STATE_CYCLE.length];
+
             if (newState === 'unreviewed') {{
                 delete commitStates[commitId];
             }} else {{
@@ -1813,7 +1917,7 @@ INDEX_HTML_TEMPLATE = """
                 console.warn('localStorage is not available:', e);
             }}
             
-            const icon = newState === 'ok' ? '✅' : (newState === 'bad' ? '❌' : '');
+            const icon = stateIcon(newState);
             document.querySelectorAll(`td.state-cell[data-commit-id="${{commitId}}"]`).forEach(el => {{
                 el.innerText = icon;
                 el.title = newState;
@@ -2171,12 +2275,10 @@ INDEX_HTML_TEMPLATE = """
 
             pageItems.forEach((item, idx) => {{
                 const stateStr = commitStates[item.id] || 'unreviewed';
-                let stateIcon = '';
-                if (stateStr === 'ok') stateIcon = '✅';
-                else if (stateStr === 'bad') stateIcon = '❌';
+                const stateIconStr = stateIcon(stateStr);
 
                 html += '<tr>';
-                html += `<td class="state-cell" data-commit-id="${{item.id}}" title="${{stateStr}}" style="cursor: pointer; text-align: center; user-select: none;" onclick="toggleCommitState('${{item.id}}', event)">${{stateIcon}}</td>`;
+                html += `<td class="state-cell" data-commit-id="${{item.id}}" title="${{stateStr}}" style="cursor: pointer; text-align: center; user-select: none;" onclick="toggleCommitState('${{item.id}}', event)">${{stateIconStr}}</td>`;
                 html += `<td class="subject-cell" title="${{escapeHtml(item.subject)}}">${{item.subject}}</td>`;
                 html += `<td><a href="${{commitBaseUrl}}${{item.id}}" target="_blank">${{item.id.substring(0, 12)}}</a></td>`;
 

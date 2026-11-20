@@ -533,6 +533,14 @@ class TestIssuesFixedSupport(unittest.TestCase):
         self.assertIn(".legend-item", generate_report.CSS_STYLES)
         self.assertIn(".legend-swatch", generate_report.CSS_STYLES)
 
+    def test_index_html_has_marker_export_import(self):
+        """The index template must expose marker export/import controls."""
+        import inspect
+        src = inspect.getsource(generate_report)
+        for token in ("exportMarkers", "importMarkers", "importMarkersInput",
+                      "MARKER_STORAGE_KEYS", "review-markers", "STATE_ICONS"):
+            self.assertIn(token, src)
+
     def test_html_templates_contain_filter_and_fix_handling(self):
         """Test that split_html_template and generated main HTML contain filter & fix-status handlers."""
         # split_html_template
