@@ -660,6 +660,55 @@ class TestIssuesFixedSupport(unittest.TestCase):
                     res = subprocess.run([node_path, "--check", "-"], input=s, capture_output=True, text=True)
                     self.assertEqual(res.returncode, 0, f"JS syntax error in single-page script {idx}:\n{res.stderr}")
 
+class TestDbModeKsource(unittest.TestCase):
+    def make_db(self, root):
+        ks_id, tree_id = "a" * 40, "b" * 40
+        d = os.path.join(root, "m1", ks_id[:2], ks_id)
+        os.makedirs(d)
+        with open(os.path.join(root, "m1", "description"), "w") as f:
+            f.write("M1")
+        with open(os.path.join(d, "review-metadata.json"), "w") as f:
+            json.dump({"sha": ks_id, "tree-commit": tree_id, "subject": "s",
+                       "issues-found": 0}, f)
+        return ks_id, tree_id
+
+    def test_target_repo_uses_tree_commit(self):
+        with tempfile.TemporaryDirectory() as root:
+            ks_id, tree_id = self.make_db(root)
+            sources, _ = generate_report.load_model_sources(root, ["m1"])
+            repo = MagicMock()
+            repo.git.show.return_value = "diff text"
+            data, _ = generate_report.collect_review_data(
+                [{"id": ks_id, "subject": ""}], sources, repo, "ksource")
+            repo.git.show.assert_called_once()
+            self.assertEqual(repo.git.show.call_args[0][0], tree_id)
+            repo.commit.assert_called_with(tree_id)
+            self.assertEqual(data[0]["full_id"], ks_id)
+            self.assertEqual(data[0]["reviews"]["M1"]["diff"], "diff text")
+
+    def test_tree_mode_uses_listed_commit(self):
+        with tempfile.TemporaryDirectory() as root:
+            ks_id, _ = self.make_db(root)
+            sources, _ = generate_report.load_model_sources(root, ["m1"])
+            repo = MagicMock()
+            repo.git.show.return_value = "d"
+            generate_report.collect_review_data([{"id": ks_id, "subject": ""}], sources, repo)
+            self.assertEqual(repo.git.show.call_args[0][0], ks_id)
+
+    def test_db_mode_in_rendered_html(self):
+        review = {"metadata": {"issues-found": 0}}
+        page = generate_report.render_review_html("M", "a" * 40, "s", review, "/", False, "ksource")
+        self.assertIn('const dbMode = "ksource"', page)
+        index = generate_report.render_index_html("t", set(), {}, [], ["M"], 50, False, False, "ksource")
+        self.assertIn('const dbMode = "ksource"', index)
+
+    def test_cli_option(self):
+        parser = generate_report.build_parser()
+        args = parser.parse_args(["--list", "l", "--dataset", "d", "--model", "m", "--db-mode", "ksource"])
+        self.assertEqual(args.db_mode, "ksource")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--list", "l", "--dataset", "d", "--model", "m", "--db-mode", "x"])
+
 if __name__ == "__main__":
     unittest.main()
 

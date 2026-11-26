@@ -104,6 +104,7 @@ These parameters take precedence over stored preferences and script defaults.
 - `--git-commit`: The git commit ID, branch, or tag to read from when `--git` is provided (default: `HEAD`).
 - `--title`: The report title.
 - `--rows`: Number of rows per page (default: 50).
+- `--db-mode`: `tree` (default) if the database entries are keyed by expanded tree commit IDs, or `ksource` if keyed by kernel-source.git commit IDs. In `ksource` mode, `commit`/`sha` and the commit list hold kernel-source IDs, `tree-commit` holds the expanded tree ID (used for the "Commit ID" column and for `--target-git`), and `distro-commit` is absent.
 - `--kerncvs`: If set, use `kerncvs.suse.de` links instead of GitHub.
 - `--links-file`: Path to a JSON configuration file containing branch to URL mappings for the branch switcher (e.g., `test/branches.json`).
 - `--target-git`: Path to the git repository for the target code being reviewed. If provided, the actual diff/patch of each commit will be extracted and embedded into the report.
@@ -155,7 +156,7 @@ or simply `make serve`. The config file looks like:
 }
 ```
 
-Relative paths are resolved against the config file location, and `~` is expanded. A relative `list` is looked up in the dataset directory first (e.g. `branches/SLE12-SP5/list`), then relative to the config file. `dataset`, `rows`, `kerncvs` and `show_review_time` can be overridden per branch.
+Relative paths are resolved against the config file location, and `~` is expanded. A relative `list` is looked up in the dataset directory first (e.g. `branches/SLE12-SP5/list`), then relative to the config file. `dataset`, `rows`, `kerncvs`, `show_review_time` and `db_mode` (`tree` or `ksource`, see `--db-mode`) can be overridden per branch. The `--db-mode` command-line option of `review_server.py` overrides `db_mode` in the config.
 
 Served URLs:
 - `/`: List of branches (redirects if only one branch is configured).

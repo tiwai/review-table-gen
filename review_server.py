@@ -45,6 +45,7 @@ from generate_report import (
     collect_review_data,
     get_review_data,
     load_model_sources,
+    DB_MODES,
     parse_commit_list,
     prune_for_index,
     render_index_html,
@@ -54,7 +55,7 @@ from generate_report import (
 ABBREV_RE = re.compile(r"^[0-9a-f]{4,40}$")      # full or abbreviated SHA ID
 LOG_LEVELS = ("debug", "info", "warning", "error")
 DEFAULT_CACHE_DIR = "~/.cache/review_server"
-DISK_CACHE_VERSION = 1      # bump when the on-disk format changes
+DISK_CACHE_VERSION = 2      # bump when the on-disk format changes
 PAGE_CACHE_SIZE = 128       # number of rendered review pages kept in memory
 
 log = logging.getLogger("review_server")
@@ -73,6 +74,10 @@ def load_config(path):
     for name, branch in branches.items():
         if "list" not in branch or "models" not in branch:
             raise ValueError(f"branch '{name}' needs 'list' and 'models'")
+        db_mode = branch.get("db_mode", config.get("db_mode", "tree"))
+        if db_mode not in DB_MODES:
+            raise ValueError(f"invalid db_mode '{db_mode}' for branch '{name}' "
+                             f"(must be one of {', '.join(DB_MODES)})")
         dataset = branch.get("dataset", config.get("dataset"))
         if not dataset:
             raise ValueError(f"no dataset given for branch '{name}'")
@@ -134,6 +139,7 @@ class ReportCache:
         add(json.dumps([name, branch, self.option(branch, "kerncvs", False),
                         self.option(branch, "rows", 50),
                         self.option(branch, "show_review_time", False),
+                        self.option(branch, "db_mode", "tree"),
                         self.branch_links()], sort_keys=True))
         add(self.list_stat(branch))
         for model in branch["models"]:
@@ -199,14 +205,16 @@ class ReportCache:
         list_stat = self.list_stat(branch)
         commits = parse_commit_list(branch["list"])
         dataset_sources, model_name_to_dir = load_model_sources(branch["dataset"], branch["models"])
-        processed_data, authors = collect_review_data(commits, dataset_sources)
+        processed_data, authors = collect_review_data(commits, dataset_sources,
+                                                      db_mode=self.option(branch, "db_mode", "tree"))
         index_data = prune_for_index(processed_data, model_name_to_dir)
         kerncvs = self.option(branch, "kerncvs", False)
         index_html = render_index_html(
             branch.get("title", f"{name} Potential Regressions"),
             authors, self.branch_links(), index_data, list(dataset_sources.keys()),
             self.option(branch, "rows", 50), kerncvs,
-            self.option(branch, "show_review_time", False))
+            self.option(branch, "show_review_time", False),
+            self.option(branch, "db_mode", "tree"))
         return self.make_entry(
             fingerprint, list_stat, kerncvs, index_html.encode("utf-8"),
             json.dumps(index_data, separators=(",", ":")).encode("utf-8"),
@@ -424,7 +432,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(404, f"No review of {sha} by {model_name}")
             page = render_review_html(model_name, item["id"], item["subject"], review,
                                       f"/b/{quote(name, safe='')}/",
-                                      entry["kerncvs"]).encode("utf-8")
+                                      entry["kerncvs"],
+                                      self.cache.option(self.cache.config["branches"][name],
+                                                        "db_mode", "tree")).encode("utf-8")
             if key:
                 self.cache.put_page(key, page)
         self.send_body(200, page)
@@ -500,6 +510,9 @@ def main():
                         help=f"Directory for the persistent cache (default: {DEFAULT_CACHE_DIR})")
     parser.add_argument("--no-disk-cache", action="store_true",
                         help="Do not keep the cache across restarts")
+    parser.add_argument("--db-mode", choices=DB_MODES,
+                        help="Override 'db_mode' of the config: 'tree' or 'ksource' "
+                        "(kernel-source.git commit based database)")
     parser.add_argument("--certfile", help="PEM certificate file; enables HTTPS in addition to HTTP")
     parser.add_argument("--keyfile", help="PEM private key file (if not included in --certfile)")
     parser.add_argument("--log-file", help="Write logs to this file instead of stderr")
@@ -522,6 +535,10 @@ def main():
     except Exception as e:
         print(f"Error: Could not load config '{args.config}': {e}")
         sys.exit(1)
+    if args.db_mode:
+        config["db_mode"] = args.db_mode
+        for branch in config["branches"].values():
+            branch.pop("db_mode", None)
 
     try:
         server = make_server(config, args.host, args.port, args.ttl,

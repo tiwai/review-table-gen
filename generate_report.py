@@ -695,6 +695,7 @@ TEXT_EXPORT_JS = r"""
             if (data.commit) out.push('commit ' + data.commit);
             if (data.author) out.push('Author: ' + data.author);
             if (data.subject) out.push('Subject: ' + data.subject);
+            if (data['tree-commit']) out.push('Tree-commit: ' + data['tree-commit']);
             if (data['distro-commit']) out.push('distro-commit: ' + data['distro-commit']);
             const up = data['upstream-commit'] || data['upstream_commit'];
             if (up) out.push('Git-commit: ' + up);
@@ -852,6 +853,9 @@ split_html_template = """<!DOCTYPE html>
         let activeReview = null;
         let commitBaseUrl = "{commit_base_url}";
         let ksBaseUrl = "{ks_base_url}";
+        const dbMode = "{db_mode}";
+        // Base URL of the primary "commit" ID: kernel-source in ksource mode
+        function getCommitUrlBase() { return dbMode === 'ksource' ? ksBaseUrl : commitBaseUrl; }
 
         function setTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
@@ -968,7 +972,7 @@ split_html_template = """<!DOCTYPE html>
                     if (trimmed.startsWith('commit ')) {
                         const id = trimmed.substring(7).trim();
                         if (/^[0-9a-f]{7,}$/.test(id)) {
-                             return `<span class="review-metadata">commit <a href="${commitBaseUrl}${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
+                             return `<span class="review-metadata">commit <a href="${getCommitUrlBase()}${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
                         }
                     }
                     if (trimmed.startsWith('Author: ')) {
@@ -982,6 +986,10 @@ split_html_template = """<!DOCTYPE html>
                     if (trimmed.startsWith('distro-commit: ')) {
                         const id = trimmed.substring(15).trim();
                         return `<span class="review-metadata">distro-commit: <a href="${ksBaseUrl}${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
+                    }
+                    if (trimmed.startsWith('Tree-commit: ')) {
+                        const id = trimmed.substring(13).trim();
+                        return `<span class="review-metadata">Tree-commit: <a href="${commitBaseUrl}${id}" target="_blank" class="review-link">${id}</a></span>\\n`;
                     }
                     if (trimmed.startsWith('Git-commit: ')) {
                         const id = trimmed.substring(12).trim();
@@ -1033,7 +1041,7 @@ split_html_template = """<!DOCTYPE html>
                     if (authorFound && !subjectFound && trimmed !== "") {
                         const prevLine = idx > 0 ? lines[idx-1].trim() : "";
                         const nextLine = idx < lines.length - 1 ? lines[idx+1].trim() : "";
-                        if (prevLine === "" && (nextLine === "" || nextLine.startsWith('suse-commit:') || nextLine.startsWith('distro-commit:'))) {
+                        if (prevLine === "" && (nextLine === "" || nextLine.startsWith('suse-commit:') || nextLine.startsWith('distro-commit:') || nextLine.startsWith('Tree-commit:'))) {
                             subjectFound = true;
                             return `<span class="review-subject">${content}</span>\\n`;
                         }
@@ -1248,13 +1256,16 @@ split_html_template = """<!DOCTYPE html>
                 // Metadata block
                 html += '<div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--table-border); line-height: 1.5;">';
                 if (data.commit) {
-                    html += `<div><span class="review-metadata">commit <a href="${commitBaseUrl}${data.commit}" target="_blank" class="review-link">${escapeHtml(data.commit)}</a></span></div>`;
+                    html += `<div><span class="review-metadata">commit <a href="${getCommitUrlBase()}${data.commit}" target="_blank" class="review-link">${escapeHtml(data.commit)}</a></span></div>`;
                 }
                 if (data.author) {
                     html += `<div><span class="review-metadata">Author: ${escapeHtml(data.author)}</span></div>`;
                 }
                 if (data.subject) {
                     html += `<div style="margin-top: 5px;"><span class="review-subject">${escapeHtml(data.subject)}</span></div>`;
+                }
+                if (data['tree-commit']) {
+                    html += `<div><span class="review-metadata">Tree-commit: <a href="${commitBaseUrl}${data['tree-commit']}" target="_blank" class="review-link">${escapeHtml(data['tree-commit'])}</a></span></div>`;
                 }
                 if (data['distro-commit']) {
                     html += `<div><span class="review-metadata">distro-commit: <a href="${ksBaseUrl}${data['distro-commit']}" target="_blank" class="review-link">${escapeHtml(data['distro-commit'])}</a></span></div>`;
@@ -1782,6 +1793,8 @@ INDEX_HTML_TEMPLATE = """
         let useKernCVS = {use_kerncvs};
         let commitBaseUrl = "";
         let ksBaseUrl = "";
+        const dbMode = "{db_mode}";
+        function getCommitUrlBase() {{ return dbMode === 'ksource' ? ksBaseUrl : commitBaseUrl; }}
         let currentPage = 1;
         let filteredData = [];
         let activeReview = null;
@@ -2280,12 +2293,23 @@ INDEX_HTML_TEMPLATE = """
                 html += '<tr>';
                 html += `<td class="state-cell" data-commit-id="${{item.id}}" title="${{stateStr}}" style="cursor: pointer; text-align: center; user-select: none;" onclick="toggleCommitState('${{item.id}}', event)">${{stateIconStr}}</td>`;
                 html += `<td class="subject-cell" title="${{escapeHtml(item.subject)}}">${{item.subject}}</td>`;
-                html += `<td><a href="${{commitBaseUrl}}${{item.id}}" target="_blank">${{item.id.substring(0, 12)}}</a></td>`;
+                let treeId = item.id;
+                if (dbMode === 'ksource') {{
+                    treeId = "";
+                    for (let ds of datasets) {{
+                        if (item.reviews[ds] && item.reviews[ds].metadata && item.reviews[ds].metadata['tree-commit']) {{
+                            treeId = item.reviews[ds].metadata['tree-commit'];
+                            break;
+                        }}
+                    }}
+                }}
+                html += `<td>${{treeId ? `<a href="${{commitBaseUrl}}${{treeId}}" target="_blank">${{treeId.substring(0, 12)}}</a>` : ""}}</td>`;
 
                 
                 // Get kernel-source ID from the first dataset that has it
-                let ksId = "";
+                let ksId = (dbMode === 'ksource') ? (item.full_id || item.id) : "";
                 for (let ds of datasets) {{
+                    if (ksId) break;
                     if (item.reviews[ds] && item.reviews[ds].metadata) {{
                         ksId = item.reviews[ds].metadata['suse-commit'] || item.reviews[ds].metadata['distro-commit'] || "";
                         break;
@@ -2499,7 +2523,7 @@ INDEX_HTML_TEMPLATE = """
                     if (trimmed.startsWith('commit ')) {{
                         const id = trimmed.substring(7).trim();
                         if (/^[0-9a-f]{{7,}}$/.test(id)) {{
-                             return `<span class="review-metadata">commit <a href="${{commitBaseUrl}}${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
+                             return `<span class="review-metadata">commit <a href="${{getCommitUrlBase()}}${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
                         }}
                     }}
                     if (trimmed.startsWith('Author: ')) {{
@@ -2513,6 +2537,10 @@ INDEX_HTML_TEMPLATE = """
                     if (trimmed.startsWith('distro-commit: ')) {{
                         const id = trimmed.substring(15).trim();
                         return `<span class="review-metadata">distro-commit: <a href="${{ksBaseUrl}}${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
+                    }}
+                    if (trimmed.startsWith('Tree-commit: ')) {{
+                        const id = trimmed.substring(13).trim();
+                        return `<span class="review-metadata">Tree-commit: <a href="${{commitBaseUrl}}${{id}}" target="_blank" class="review-link">${{id}}</a></span>\\n`;
                     }}
                     if (trimmed.startsWith('Git-commit: ')) {{
                         const id = trimmed.substring(12).trim();
@@ -2564,7 +2592,7 @@ INDEX_HTML_TEMPLATE = """
                     if (authorFound && !subjectFound && trimmed !== "") {{
                         const prevLine = idx > 0 ? lines[idx-1].trim() : "";
                         const nextLine = idx < lines.length - 1 ? lines[idx+1].trim() : "";
-                        if (prevLine === "" && (nextLine === "" || nextLine.startsWith('suse-commit:') || nextLine.startsWith('distro-commit:'))) {{
+                        if (prevLine === "" && (nextLine === "" || nextLine.startsWith('suse-commit:') || nextLine.startsWith('distro-commit:') || nextLine.startsWith('Tree-commit:'))) {{
                             subjectFound = true;
                             return `<span class="review-subject">${{content}}</span>\\n`;
                         }}
@@ -2779,13 +2807,16 @@ INDEX_HTML_TEMPLATE = """
                 // Metadata block
                 html += '<div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--table-border); line-height: 1.5;">';
                 if (data.commit) {{
-                    html += `<div><span class="review-metadata">commit <a href="${{commitBaseUrl}}${{data.commit}}" target="_blank" class="review-link">${{escapeHtml(data.commit)}}</a></span></div>`;
+                    html += `<div><span class="review-metadata">commit <a href="${{getCommitUrlBase()}}${{data.commit}}" target="_blank" class="review-link">${{escapeHtml(data.commit)}}</a></span></div>`;
                 }}
                 if (data.author) {{
                     html += `<div><span class="review-metadata">Author: ${{escapeHtml(data.author)}}</span></div>`;
                 }}
                 if (data.subject) {{
                     html += `<div style="margin-top: 5px;"><span class="review-subject">${{escapeHtml(data.subject)}}</span></div>`;
+                }}
+                if (data['tree-commit']) {{
+                    html += `<div><span class="review-metadata">Tree-commit: <a href="${{commitBaseUrl}}${{data['tree-commit']}}" target="_blank" class="review-link">${{escapeHtml(data['tree-commit'])}}</a></span></div>`;
                 }}
                 if (data['distro-commit']) {{
                     html += `<div><span class="review-metadata">distro-commit: <a href="${{ksBaseUrl}}${{data['distro-commit']}}" target="_blank" class="review-link">${{escapeHtml(data['distro-commit'])}}</a></span></div>`;
@@ -3093,6 +3124,8 @@ KERNEL_COMMIT_URLS = {
     True: "https://kerncvs.suse.de/gitweb/?p=kernel.git;a=commit;h=",
 }
 
+DB_MODES = ("tree", "ksource")
+
 KS_COMMIT_URLS = {
     False: "https://github.com/SUSE/kernel-source/commit/",
     True: "https://kerncvs.suse.de/gitweb/?p=kernel-source.git;a=commit;h=",
@@ -3135,7 +3168,7 @@ def load_model_sources(dataset, model_dirs):
         model_name_to_dir[model_name] = model_dir_name
     return dataset_sources, model_name_to_dir
 
-def collect_review_data(commits, dataset_sources, target_repo=None):
+def collect_review_data(commits, dataset_sources, target_repo=None, db_mode="tree"):
     """Collect the reviews of all models for the given commits.
 
     Returns (processed_data, authors).  Commits without any review are skipped.
@@ -3147,7 +3180,7 @@ def collect_review_data(commits, dataset_sources, target_repo=None):
         commit_reviews = {}
         has_any_review = False
         commit_full_id = None
-        commit_diff = None
+        commit_diffs = {}
 
         for model_name, source in dataset_sources.items():
             # Try to resolve full ID if not already done
@@ -3158,13 +3191,23 @@ def collect_review_data(commits, dataset_sources, target_repo=None):
                 data = get_review_data(source, commit_full_id)
                 if data:
                     committer = None
-                    if target_repo:
-                        if commit_diff is None:
-                            commit_diff = get_commit_diff(target_repo, commit_full_id) or ""
+                    # The commit ID in the expanded tree
+                    tree_id = commit_full_id
+                    if db_mode == "ksource":
+                        tree_id = (data.get("metadata") or {}).get("tree-commit")
+                        if not tree_id and data.get("inline_is_json"):
+                            try:
+                                tree_id = json.loads(data["inline"]).get("tree-commit")
+                            except Exception:
+                                tree_id = None
+                    if target_repo and tree_id:
+                        if commit_diffs.get(tree_id) is None:
+                            commit_diffs[tree_id] = get_commit_diff(target_repo, tree_id) or ""
+                        commit_diff = commit_diffs[tree_id]
                         if commit_diff:
                             data["diff"] = commit_diff
                         try:
-                            git_commit_obj = target_repo.commit(commit_full_id)
+                            git_commit_obj = target_repo.commit(tree_id)
                             committer_name = git_commit_obj.committer.name
                             committer_email = git_commit_obj.committer.email
                             if committer_email:
@@ -3262,7 +3305,7 @@ def render_branch_switcher(branch_links):
         """
 
 def render_index_html(title, authors, branch_links, index_data, datasets_list,
-                      rows, kerncvs=False, show_review_time=False):
+                      rows, kerncvs=False, show_review_time=False, db_mode="tree"):
     """Render the index page; index_data is embedded as compressed JSON."""
     author_options = "".join([f'<option value="{html.escape(a)}">{html.escape(a)}</option>' for a in sorted(authors)])
 
@@ -3280,11 +3323,12 @@ def render_index_html(title, authors, branch_links, index_data, datasets_list,
         datasets_list=json.dumps(datasets_list),
         rows_per_page=rows,
         use_kerncvs="true" if kerncvs else "false",
-        show_review_time="true" if show_review_time else "false"
+        show_review_time="true" if show_review_time else "false",
+        db_mode=db_mode
     )
     return rendered.replace("/*TEXT_EXPORT_JS*/", TEXT_EXPORT_JS)
 
-def render_review_html(model_name, commit_id, subject, review, back_link, kerncvs=False):
+def render_review_html(model_name, commit_id, subject, review, back_link, kerncvs=False, db_mode="tree"):
     """Render a review subpage."""
     split_css = CSS_STYLES.replace("{{", "{").replace("}}", "}")
 
@@ -3303,6 +3347,7 @@ def render_review_html(model_name, commit_id, subject, review, back_link, kerncv
     split_html = split_html.replace("/*TEXT_EXPORT_JS*/", TEXT_EXPORT_JS)
     split_html = split_html.replace("{commit_base_url}", KERNEL_COMMIT_URLS[bool(kerncvs)])
     split_html = split_html.replace("{ks_base_url}", KS_COMMIT_URLS[bool(kerncvs)])
+    split_html = split_html.replace("{db_mode}", db_mode)
     return split_html
 
 
@@ -3318,6 +3363,9 @@ def build_parser():
     parser.add_argument("--git-commit", default="HEAD", help="Git commit ID to read from (default: HEAD)")
     parser.add_argument("--title", default="Potential Regressions", help="Report title")
     parser.add_argument("--rows", type=int, default=50, help="Max rows per page")
+    parser.add_argument("--db-mode", choices=DB_MODES, default="tree",
+                        help="Database entries are keyed by expanded tree commit IDs ('tree', default) "
+                             "or kernel-source.git commit IDs ('ksource')")
     parser.add_argument("--kerncvs", action="store_true", help="Use kerncvs URLs instead of GitHub")
     parser.add_argument("--links-file", help="JSON file containing branch to URL mappings for the branch switcher")
     parser.add_argument("--target-git", help="Git repository for the target code")
@@ -3438,7 +3486,7 @@ def main():
             print(f"Error: Could not open target git repository '{args.target_git}': {e}")
             sys.exit(1)
 
-    processed_data, authors = collect_review_data(commits, dataset_sources, target_repo)
+    processed_data, authors = collect_review_data(commits, dataset_sources, target_repo, args.db_mode)
 
     # 3. Generate HTML
     datasets_list = list(dataset_sources.keys())
@@ -3461,7 +3509,7 @@ def main():
                 os.makedirs(os.path.dirname(split_file_path), exist_ok=True)
 
                 split_html = render_review_html(model_name, item["id"], item["subject"],
-                                                review, back_link, args.kerncvs)
+                                                review, back_link, args.kerncvs, args.db_mode)
                 with open(split_file_path, "w", encoding="utf-8") as sf:
                     sf.write(split_html)
 
@@ -3471,7 +3519,7 @@ def main():
 
     full_html = render_index_html(args.title, authors, branch_links, index_data,
                                   datasets_list, args.rows, args.kerncvs,
-                                  args.show_review_time)
+                                  args.show_review_time, args.db_mode)
 
     with open(args.output, "w") as f:
         f.write(full_html)

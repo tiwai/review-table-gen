@@ -306,5 +306,20 @@ class TestReviewServerHTTPS(unittest.TestCase):
                                         timeout=5) as resp:
                 self.assertEqual(resp.status, 200)
 
+class TestDbModeConfig(unittest.TestCase):
+    def test_invalid_db_mode_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "c.json")
+            with open(path, "w") as f:
+                json.dump({"dataset": d, "db_mode": "bogus",
+                           "branches": {"b": {"list": "l", "models": ["m"]}}}, f)
+            with self.assertRaises(ValueError):
+                review_server.load_config(path)
+            with open(path, "w") as f:
+                json.dump({"dataset": d, "db_mode": "ksource",
+                           "branches": {"b": {"list": "l", "models": ["m"]}}}, f)
+            self.assertEqual(review_server.load_config(path)["db_mode"], "ksource")
+
+
 if __name__ == "__main__":
     unittest.main()
