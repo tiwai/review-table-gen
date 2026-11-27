@@ -350,7 +350,6 @@ CSS_STYLES = """
             --code-block-border: #e1e4e8;
             --downstream-highlight-bg: #fff5b1;
             --pre-verification-bg: #e8e8e8;
-            --verified-bg: #d1ecf1;
             --verified-banner-bg: #cce5ff;
             --verified-border: #004085;
             --re-verified-confirmed-bg: #f8d7da;
@@ -396,7 +395,6 @@ CSS_STYLES = """
             --inline-view-bg: #1a1a1b;
             --downstream-highlight-bg: #443d00;
             --pre-verification-bg: #333333;
-            --verified-bg: #0d2b30;
             --verified-banner-bg: #0a2440;
             --verified-border: #79c0ff;
             --re-verified-confirmed-bg: #4c1a1a;
@@ -442,7 +440,6 @@ CSS_STYLES = """
             --inline-view-bg: #2d004d;
             --downstream-highlight-bg: #ff00ff;
             --pre-verification-bg: #4d0080;
-            --verified-bg: #004d4d;
             --verified-banner-bg: #003366;
             --verified-border: #00ffff;
             --re-verified-confirmed-bg: #ff0000;
@@ -463,7 +460,7 @@ CSS_STYLES = """
         .visited {{ opacity: 0.6; }}
         .has-pre-verification {{ background-color: var(--pre-verification-bg) !important; }}
         .has-downstream {{ background-color: var(--downstream-highlight-bg) !important; }}
-        .has-verified {{ background-color: var(--verified-bg) !important; }}
+        .verified-mark {{ color: var(--verified-border); font-weight: bold; font-size: 1.25em; line-height: 1; }}
         .re-verified-banner {{ background-color: var(--verified-banner-bg); border-left: 4px solid var(--verified-border); padding: 10px; margin-bottom: 15px; border-radius: 4px; }}
         .re-verified-badge {{ display: inline-block; padding: 2px 8px; font-size: 13px; font-weight: bold; border-radius: 4px; text-transform: uppercase; }}
         .re-verified-confirmed {{ background-color: var(--re-verified-confirmed-bg); color: var(--re-verified-confirmed-text); }}
@@ -1696,8 +1693,8 @@ INDEX_HTML_TEMPLATE = """
                     <span><strong>* (highlighted)</strong>: Pre-verified findings available</span>
                 </div>
                 <div class="legend-item">
-                    <span class="legend-swatch has-verified">✓</span>
-                    <span><strong>✓ (highlighted)</strong>: Re-verified result available</span>
+                    <span class="legend-swatch"><span class="verified-mark">✓</span></span>
+                    <span><strong>✓</strong>: Re-verified result available</span>
                 </div>
                 <div class="legend-item">
                     <span class="legend-swatch visited" style="border-style: dashed;">Visited</span>
@@ -2323,8 +2320,7 @@ INDEX_HTML_TEMPLATE = """
                         const metadata = review.metadata;
                         const hasPre = review.pre_verification ? "*" : "";
                         const preClass = review.pre_verification ? "has-pre-verification" : "";
-                        const hasVerified = review.verified_result ? " ✓" : "";
-                        const verifiedClass = review.verified_result ? "has-verified" : "";
+                        const hasVerified = review.verified_result ? ' <span class="verified-mark">✓</span>' : "";
                         const severity = (metadata['issue-severity-score'] || "none").toString().toLowerCase();
                         let severityClass = `severity-${{severity}}`;
                         const reviewKey = `${{item.id}}-${{dsName}}`;
@@ -2367,7 +2363,7 @@ INDEX_HTML_TEMPLATE = """
                             severityContent = `<a href="${{review.url}}" class="review-page-link" style="color: inherit; text-decoration: none; display: block; width: 100%; height: 100%;">${{severityText}}</a>`;
                         }}
 
-                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}} ${{verifiedClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesContent}}</td>`;
+                        html += `<td class="issues-cell ${{dsClass}} ${{preClass}}${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{issuesContent}}</td>`;
                         html += `<td class="${{severityClass}} issues-cell${{visitedClass}}" data-review-id="${{reviewKey}}" ${{clickAction}}>${{severityContent}}</td>`;
                         if (showReviewTime) {{
                             html += `<td>${{metadata['review-time-seconds']}}s</td>`;
